@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  safeclaw:
+    build: .
+    container_name: safeclaw-sidecar
+    ports:
+      - "3000:3000"   # HTTP API
+      - "8545:8545"   # Anvil RPC
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - NODE_ENV=production
+    volumes:
+      - safeclaw-data:/app/data
+      - ./anvil-state.json:/app/anvil-state.json
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/status', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - safeclaw-network
+
+  # Optional: Example agent that uses SafeClaw
+  # Uncomment and customize for your use case
+  # example-agent:
+  #   image: your-agent-image
+  #   container_name: example-agent
+  #   environment:
+  #     - SAFECLAW_URL=http://safeclaw:3000
+  #   depends_on:
+  #     - safeclaw
+  #   networks:
+  #     - safeclaw-network
+
+volumes:
+  safeclaw-data:
+    driver: local
+
+networks:
+  safeclaw-network:
+    driver: bridge

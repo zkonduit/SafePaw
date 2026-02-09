@@ -1,0 +1,27 @@
+{
+  "name": "@safeclaw/sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for SafeClaw AgentTrace - AI Agent observability and provable execution",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "safeclaw",
+    "ai",
+    "agent",
+    "observability",
+    "blockchain",
+    "security"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "files": [
+    "dist"
+  ]
+}
