@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="mascot/safeclaw.png" alt="SafeClaw" width="400"/>
+  <img src="mascot/safeclaw-square.png" alt="SafeClaw" width="400"/>
 </div>
 
 # SafeClaw
