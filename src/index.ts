@@ -3,12 +3,11 @@ import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { ChainManager } from './chain';
-import { VerificationService } from './verify';
 import { createAPIRouter } from './api';
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 12345;
 const HOST = process.env.HOST || '0.0.0.0';
 
 async function main() {
@@ -19,9 +18,15 @@ async function main() {
   const chainManager = new ChainManager();
 
   try {
-    // Start Anvil
-    await chainManager.startAnvil();
-    console.log('✓ Anvil started successfully\n');
+    // Start Anvil only if explicitly enabled
+    const startAnvil = process.env.START_ANVIL === 'true';
+    if (startAnvil) {
+      console.log('Starting embedded Anvil...');
+      await chainManager.startAnvil();
+      console.log('✓ Anvil started successfully\n');
+    } else {
+      console.log('Using external RPC endpoint:', process.env.ETHEREUM_RPC_URL || 'http://127.0.0.1:8545');
+    }
 
     // Initialize provider and wallet
     await chainManager.initProvider();
@@ -45,9 +50,6 @@ async function main() {
       console.log('✓ Contract deployed successfully\n');
     }
 
-    // Initialize verification service
-    const verificationService = new VerificationService(chainManager);
-
     // Create Express app
     const app = express();
 
@@ -57,30 +59,25 @@ async function main() {
     app.use(express.json());
 
     // Health check endpoint
-    app.get('/', (req, res) => {
+    app.get('/', (_req, res) => {
       res.json({
         service: 'SafeClaw AgentTrace Sidecar',
         version: '1.0.0',
         status: 'running',
         contractAddress: chainManager.getContractAddress(),
-        anvilRPC: 'http://127.0.0.1:8545',
+        rpcUrl: process.env.ETHEREUM_RPC_URL || 'http://127.0.0.1:8545',
         endpoints: {
           log: 'POST /log',
-          entries: 'GET /entries',
-          entry: 'GET /entry/:id',
-          verify: 'GET /verify',
-          verifyEntry: 'GET /verify/:id',
-          proof: 'GET /proof/:id',
-          health: 'GET /health',
-          tampering: 'GET /tampering',
-          summary: 'GET /summary',
+          entries: 'GET /entries/:agent',
+          entry: 'GET /entry/:agent/:id',
+          summary: 'GET /summary/:agent',
           status: 'GET /status'
         }
       });
     });
 
     // API routes
-    app.use('/', createAPIRouter(chainManager, verificationService));
+    app.use('/', createAPIRouter(chainManager));
 
     // Error handling middleware
     app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -98,7 +95,7 @@ async function main() {
       console.log('\nExample usage:');
       console.log(`  curl -X POST http://localhost:${PORT}/log \\`);
       console.log(`    -H "Content-Type: application/json" \\`);
-      console.log(`    -d '{"action":"agent_started","metadata":{"version":"1.0"}}'`);
+      console.log(`    -d '{"data":"{\\"action\\":\\"agent_started\\",\\"metadata\\":{\\"version\\":\\"1.0\\"}}"}'`);
       console.log();
     });
 

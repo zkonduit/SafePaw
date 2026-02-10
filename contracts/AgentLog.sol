@@ -7,72 +7,57 @@ pragma solidity ^0.8.20;
  * Implements a hash chain where each entry references the previous one
  */
 contract AgentLog {
-    struct LogEntry {
-        uint256 id;
+    struct Log {
         uint256 timestamp;
-        address agent;
-        string action;
-        string metadata;
-        bytes32 previousHash;
-        bytes32 currentHash;
+        string data;
     }
 
+    // Custom errors (more gas efficient than string reverts)
+    error InvalidStartId();
+    error InvalidEndId();
+
     // Storage
-    uint256 private _entryCount;
-    mapping(uint256 => LogEntry) private _entries;
-    bytes32 private _lastHash;
+    // Mapping of agent address to their log entry count
+    mapping(address => uint256) public logCount;
+    // Mapping of agent address to their log entries (ID => LogEntry)
+    mapping(address => mapping(uint256 => Log)) public logs;
 
     // Events
     event LogCreated(
         uint256 indexed id,
+        uint256 indexed timestamp,
         address indexed agent,
-        string action,
-        bytes32 currentHash,
-        bytes32 previousHash
+        string data
     );
 
     /**
      * @dev Add a new log entry to the chain
-     * @param action The action being logged
-     * @param metadata Additional JSON metadata
-     * @return id The ID of the created log entry
+     * @param data JSON metadata
+     * @notice Gas-optimized implementation using assembly and unchecked arithmetic
      */
-    function addLog(string memory action, string memory metadata) external returns (uint256) {
-        _entryCount++;
-        uint256 id = _entryCount;
-        uint256 timestamp = block.timestamp;
+    function addLog(string memory data) external {
         address agent = msg.sender;
-        bytes32 previousHash = _lastHash;
+        uint256 id;
+        uint256 timestamp = block.timestamp;
 
-        // Create hash of current entry
-        bytes32 currentHash = keccak256(
-            abi.encodePacked(
-                id,
-                timestamp,
-                agent,
-                action,
-                metadata,
-                previousHash
-            )
-        );
+        assembly {
+            // Load logCount[msg.sender] - more efficient than high-level SLOAD
+            mstore(0x00, agent)
+            mstore(0x20, logCount.slot)
+            let countSlot := keccak256(0x00, 0x40)
+            id := sload(countSlot)
 
-        // Store entry
-        _entries[id] = LogEntry({
-            id: id,
+            // Store updated count (id + 1) immediately - save gas by avoiding second SSTORE later
+            sstore(countSlot, add(id, 1))
+        }
+
+        // Store entry - keeping struct assignment in Solidity for safety with dynamic data
+        logs[agent][id] = Log({
             timestamp: timestamp,
-            agent: agent,
-            action: action,
-            metadata: metadata,
-            previousHash: previousHash,
-            currentHash: currentHash
+            data: data
         });
 
-        // Update last hash
-        _lastHash = currentHash;
-
-        emit LogCreated(id, agent, action, currentHash, previousHash);
-
-        return id;
+        emit LogCreated(id, timestamp, agent, data);
     }
 
     /**
@@ -80,109 +65,50 @@ contract AgentLog {
      * @param id The entry ID
      * @return The log entry
      */
-    function getLog(uint256 id) external view returns (LogEntry memory) {
-        require(id > 0 && id <= _entryCount, "Invalid log ID");
-        return _entries[id];
-    }
-
-    /**
-     * @dev Get the total number of log entries
-     * @return The entry count
-     */
-    function getLogCount() external view returns (uint256) {
-        return _entryCount;
-    }
-
-    /**
-     * @dev Get the hash of the last entry
-     * @return The last hash in the chain
-     */
-    function getLastHash() external view returns (bytes32) {
-        return _lastHash;
-    }
-
-    /**
-     * @dev Verify the integrity of a specific log entry
-     * @param id The entry ID to verify
-     * @return True if the entry's hash is valid
-     */
-    function verifyLog(uint256 id) external view returns (bool) {
-        require(id > 0 && id <= _entryCount, "Invalid log ID");
-        LogEntry memory entry = _entries[id];
-
-        bytes32 computedHash = keccak256(
-            abi.encodePacked(
-                entry.id,
-                entry.timestamp,
-                entry.agent,
-                entry.action,
-                entry.metadata,
-                entry.previousHash
-            )
-        );
-
-        return computedHash == entry.currentHash;
-    }
-
-    /**
-     * @dev Verify the entire chain from start to a specific entry
-     * @param upToId The entry ID to verify up to (0 = verify all)
-     * @return True if the chain is valid
-     */
-    function verifyChain(uint256 upToId) external view returns (bool) {
-        if (upToId == 0 || upToId > _entryCount) {
-            upToId = _entryCount;
-        }
-
-        bytes32 expectedPreviousHash = bytes32(0);
-
-        for (uint256 i = 1; i <= upToId; i++) {
-            LogEntry memory entry = _entries[i];
-
-            // Verify previous hash matches
-            if (entry.previousHash != expectedPreviousHash) {
-                return false;
-            }
-
-            // Verify current hash is correct
-            bytes32 computedHash = keccak256(
-                abi.encodePacked(
-                    entry.id,
-                    entry.timestamp,
-                    entry.agent,
-                    entry.action,
-                    entry.metadata,
-                    entry.previousHash
-                )
-            );
-
-            if (computedHash != entry.currentHash) {
-                return false;
-            }
-
-            expectedPreviousHash = entry.currentHash;
-        }
-
-        return true;
+    function getLog(address agent, uint256 id) external view returns (Log memory) {
+        return logs[agent][id];
     }
 
     /**
      * @dev Get logs in a range
-     * @param start Start ID (inclusive)
-     * @param end End ID (inclusive)
+     * @param agent The agent address
+     * @param start Start ID (inclusive, 0-indexed)
+     * @param end End ID (inclusive, 0-indexed)
      * @return Array of log entries
+     * @notice Gas-optimized with assembly and custom errors
      */
-    function getLogRange(uint256 start, uint256 end) external view returns (LogEntry[] memory) {
-        require(start > 0 && start <= _entryCount, "Invalid start ID");
-        require(end >= start && end <= _entryCount, "Invalid end ID");
+    function getLogRange(address agent, uint256 start, uint256 end) external view returns (Log[] memory) {
+        uint256 count;
+        uint256 agentLogCount = logCount[agent];
 
-        uint256 count = end - start + 1;
-        LogEntry[] memory logs = new LogEntry[](count);
+        assembly {
+            // Validate start < logCount
+            if iszero(lt(start, agentLogCount)) {
+                // revert InvalidStartId()
+                mstore(0x00, 0x460ebc3300000000000000000000000000000000000000000000000000000000) // selector for InvalidStartId()
+                revert(0x00, 0x04)
+            }
 
-        for (uint256 i = 0; i < count; i++) {
-            logs[i] = _entries[start + i];
+            // Validate end >= start && end < logCount
+            if or(lt(end, start), iszero(lt(end, agentLogCount))) {
+                // revert InvalidEndId()
+                mstore(0x00, 0x9179051800000000000000000000000000000000000000000000000000000000) // selector for InvalidEndId()
+                revert(0x00, 0x04)
+            }
+
+            // Calculate count = end - start + 1 (unchecked, already validated)
+            count := add(sub(end, start), 1)
         }
 
-        return logs;
+        Log[] memory _logs = new Log[](count);
+
+        // Use unchecked loop for array population
+        unchecked {
+            for (uint256 i = 0; i < count; ++i) {
+                _logs[i] = logs[agent][start + i];
+            }
+        }
+
+        return _logs;
     }
 }

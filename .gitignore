@@ -15,10 +15,12 @@ out/
 # State files
 anvil-state.json
 .safeclaw-config.json
+.anvil.pid
 
 # Logs
 *.log
 logs/
+anvil.log
 
 # IDE
 .vscode/

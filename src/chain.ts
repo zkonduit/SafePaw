@@ -2,22 +2,26 @@ import { spawn, ChildProcess } from 'child_process';
 import { ethers } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
 
-const ANVIL_PORT = 8545;
-const ANVIL_HOST = '127.0.0.1';
-const ANVIL_RPC = `http://${ANVIL_HOST}:${ANVIL_PORT}`;
+// Load environment variables
+dotenv.config();
 
-// Contract ABI will be loaded from compiled artifacts
-const CONTRACT_ABI = [
-  "function addLog(string action, string metadata) external returns (uint256)",
-  "function getLog(uint256 id) external view returns (tuple(uint256 id, uint256 timestamp, address agent, string action, string metadata, bytes32 previousHash, bytes32 currentHash))",
-  "function getLogCount() external view returns (uint256)",
-  "function getLastHash() external view returns (bytes32)",
-  "function verifyLog(uint256 id) external view returns (bool)",
-  "function verifyChain(uint256 upToId) external view returns (bool)",
-  "function getLogRange(uint256 start, uint256 end) external view returns (tuple(uint256 id, uint256 timestamp, address agent, string action, string metadata, bytes32 previousHash, bytes32 currentHash)[])",
-  "event LogCreated(uint256 indexed id, address indexed agent, string action, bytes32 currentHash, bytes32 previousHash)"
-];
+const ETHEREUM_RPC_URL = process.env.ETHEREUM_RPC_URL || 'http://127.0.0.1:8545';
+
+// Load contract ABI from compiled artifacts
+function loadContractABI(): any[] {
+  try {
+    const artifactPath = path.join(process.cwd(), 'out', 'AgentLog.sol', 'AgentLog.json');
+    const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf-8'));
+    return artifact.abi;
+  } catch (error) {
+    console.error('Failed to load contract ABI from compiled artifacts:', error);
+    throw new Error('Contract artifacts not found. Please run: forge build');
+  }
+}
+
+const CONTRACT_ABI = loadContractABI();
 
 export class ChainManager {
   private anvilProcess: ChildProcess | null = null;
@@ -32,13 +36,18 @@ export class ChainManager {
   async startAnvil(): Promise<void> {
     console.log('Starting Anvil...');
 
+    // Parse host and port from RPC URL
+    const url = new URL(ETHEREUM_RPC_URL);
+    const host = url.hostname;
+    const port = url.port || '8545';
+
     return new Promise((resolve, reject) => {
-      // Start anvil with 1s block time and state persistence
+      // Start anvil with 5s block time and state persistence
       this.anvilProcess = spawn('anvil', [
-        '--block-time', '1',
-        '--host', ANVIL_HOST,
-        '--port', ANVIL_PORT.toString(),
-        '--state-interval', '1',
+        '--block-time', '5',
+        '--host', host,
+        '--port', port,
+        '--state-interval', '5',
         '--state', './anvil-state.json'
       ]);
 
@@ -79,13 +88,41 @@ export class ChainManager {
    */
   async initProvider(): Promise<void> {
     console.log('Initializing provider...');
-    this.provider = new ethers.JsonRpcProvider(ANVIL_RPC);
 
-    // Use the first default Anvil account
-    const privateKey = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
-    this.wallet = new ethers.Wallet(privateKey, this.provider);
+    // Load private key from environment variable
+    const privateKey = process.env.PRIVATE_KEY;
+    if (!privateKey) {
+      throw new Error('PRIVATE_KEY environment variable is required. Please set it in your .env file.');
+    }
 
-    console.log('Wallet address:', this.wallet.address);
+    // Retry connection to RPC with exponential backoff
+    const maxRetries = 5;
+    let lastError: any;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        this.provider = new ethers.JsonRpcProvider(ETHEREUM_RPC_URL);
+        this.wallet = new ethers.Wallet(privateKey, this.provider);
+
+        // Test the connection by getting the network
+        await this.provider.getNetwork();
+
+        console.log('Wallet address:', this.wallet.address);
+        console.log('Connected to network:', ETHEREUM_RPC_URL);
+        return;
+      } catch (error: any) {
+        lastError = error;
+
+        if (attempt < maxRetries - 1) {
+          const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+          console.warn(`Failed to connect to RPC on attempt ${attempt + 1}/${maxRetries}, retrying in ${waitTime}ms...`);
+          console.warn(`Error: ${error.message}`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+
+    throw new Error(`Failed to connect to RPC after ${maxRetries} attempts: ${lastError.message}`);
   }
 
   /**
@@ -97,9 +134,6 @@ export class ChainManager {
     }
 
     console.log('Deploying AgentLog contract...');
-
-    // Load compiled contract bytecode
-    const contractPath = path.join(process.cwd(), 'contracts', 'AgentLog.sol');
 
     // For simplicity, using a pre-compiled bytecode
     // In production, you'd compile with solc or foundry
@@ -113,7 +147,7 @@ export class ChainManager {
     await contract.waitForDeployment();
 
     this.contractAddress = await contract.getAddress();
-    this.contract = contract;
+    this.contract = contract as ethers.Contract;
 
     console.log('Contract deployed at:', this.contractAddress);
 
@@ -139,89 +173,104 @@ export class ChainManager {
   /**
    * Add a log entry to the blockchain
    */
-  async addLog(action: string, metadata: string): Promise<{ id: bigint; hash: string; txHash: string }> {
+  async addLog(data: string): Promise<{ id: bigint; timestamp: bigint; txHash: string }> {
     if (!this.contract) {
       throw new Error('Contract not initialized');
     }
 
-    const tx = await this.contract.addLog(action, metadata);
-    const receipt = await tx.wait();
+    // Retry logic for transient network failures
+    const maxRetries = 3;
+    let lastError: any;
 
-    // Parse the LogCreated event
-    const event = receipt.logs
-      .map((log: any) => {
-        try {
-          return this.contract!.interface.parseLog(log);
-        } catch {
-          return null;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const tx = await this.contract.addLog(data);
+        const receipt = await tx.wait();
+
+        // Parse the LogCreated event
+        const event = receipt.logs
+          .map((log: any) => {
+            try {
+              return this.contract!.interface.parseLog(log);
+            } catch (e) {
+              console.error('Failed to parse log:', e);
+              return null;
+            }
+          })
+          .find((e: any) => e && e.name === 'LogCreated');
+
+        if (!event) {
+          console.error('Available events:', receipt.logs.map((log: any) => {
+            try {
+              return this.contract!.interface.parseLog(log);
+            } catch {
+              return 'unparseable';
+            }
+          }));
+          throw new Error('LogCreated event not found');
         }
-      })
-      .find((e: any) => e && e.name === 'LogCreated');
 
-    if (!event) {
-      throw new Error('LogCreated event not found');
+        return {
+          id: event.args.id,
+          timestamp: event.args.timestamp,
+          txHash: receipt.hash
+        };
+      } catch (error: any) {
+        lastError = error;
+
+        // Check if it's a network error that we should retry
+        if (error.code === 'ECONNREFUSED' ||
+            error.code === 'NETWORK_ERROR' ||
+            error.code === 'ETIMEDOUT' ||
+            (error.message && error.message.includes('could not detect network'))) {
+
+          if (attempt < maxRetries - 1) {
+            const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
+            console.warn(`Network error on attempt ${attempt + 1}/${maxRetries}, retrying in ${waitTime}ms...`, error.message);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            continue;
+          }
+        }
+
+        // If not a retryable error, or we've exhausted retries, throw
+        throw error;
+      }
     }
 
-    return {
-      id: event.args.id,
-      hash: event.args.currentHash,
-      txHash: receipt.hash
-    };
+    throw lastError;
   }
 
   /**
-   * Get a log entry by ID
+   * Get a log entry by ID for a specific agent
    */
-  async getLog(id: number): Promise<any> {
+  async getLog(agent: string, id: number): Promise<any> {
     if (!this.contract) {
       throw new Error('Contract not initialized');
     }
 
-    return await this.contract.getLog(id);
+    return await this.contract.getLog(agent, id);
   }
 
   /**
-   * Get total log count
+   * Get total log count for a specific agent
    */
-  async getLogCount(): Promise<bigint> {
+  async getLogCount(agent: string): Promise<bigint> {
     if (!this.contract) {
       throw new Error('Contract not initialized');
     }
 
-    return await this.contract.getLogCount();
+    return await this.contract.logCount(agent);
   }
 
   /**
-   * Get logs in a range
+   * Get logs in a range for a specific agent
    */
-  async getLogRange(start: number, end: number): Promise<any[]> {
+  async getLogRange(agent: string, start: number, end: number): Promise<any[]> {
     if (!this.contract) {
       throw new Error('Contract not initialized');
     }
 
-    return await this.contract.getLogRange(start, end);
-  }
-
-  /**
-   * Verify a specific log entry
-   */
-  async verifyLog(id: number): Promise<boolean> {
-    if (!this.contract) {
-      throw new Error('Contract not initialized');
-    }
-
-    return await this.contract.verifyLog(id);
-  }
-
-  /**
-   * Verify the entire chain
-   */
-  async verifyChain(upToId: number = 0): Promise<boolean> {
-    if (!this.contract) {
-      throw new Error('Contract not initialized');
-    }
-
-    return await this.contract.verifyChain(upToId);
+    return await this.contract.getLogRange(agent, start, end);
   }
 
   /**
@@ -243,34 +292,60 @@ export class ChainManager {
   }
 
   /**
-   * Helper to save contract address to file
+   * Helper to save contract address to .env file
    */
   private saveContractAddress(address: string): void {
-    const configPath = path.join(process.cwd(), '.safeclaw-config.json');
-    const config = { contractAddress: address };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-  }
-
-  /**
-   * Helper to load contract address from file
-   */
-  static loadContractAddress(): string | null {
-    const configPath = path.join(process.cwd(), '.safeclaw-config.json');
+    const envPath = path.join(process.cwd(), '.env');
     try {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      return config.contractAddress;
-    } catch {
-      return null;
+      let envContent = '';
+
+      // Read existing .env file if it exists
+      if (fs.existsSync(envPath)) {
+        envContent = fs.readFileSync(envPath, 'utf-8');
+      }
+
+      // Check if CONTRACT_ADDRESS already exists in the file
+      if (envContent.includes('CONTRACT_ADDRESS=')) {
+        // Update existing CONTRACT_ADDRESS
+        envContent = envContent.replace(
+          /CONTRACT_ADDRESS=.*/,
+          `CONTRACT_ADDRESS=${address}`
+        );
+      } else {
+        // Append CONTRACT_ADDRESS to the end
+        envContent += `\n# Contract address (automatically set after deployment)\nCONTRACT_ADDRESS=${address}\n`;
+      }
+
+      fs.writeFileSync(envPath, envContent);
+      console.log('✓ Contract address saved to .env file');
+    } catch (error) {
+      console.warn('Warning: Could not save contract address to .env file:', error);
     }
   }
 
   /**
-   * Get contract bytecode
-   * In production, this would be loaded from compiled artifacts
+   * Helper to load contract address from .env file
+   */
+  static loadContractAddress(): string | null {
+    return process.env.CONTRACT_ADDRESS || null;
+  }
+
+  /**
+   * Get contract bytecode from compiled artifacts
    */
   private getContractBytecode(): string {
-    // This is a placeholder - in production, compile with solc/foundry
-    // For now, we'll need to compile the contract separately
-    throw new Error('Contract must be compiled first. Run: forge build');
+    try {
+      const artifactPath = path.join(process.cwd(), 'out', 'AgentLog.sol', 'AgentLog.json');
+      const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf-8'));
+
+      if (!artifact.bytecode || !artifact.bytecode.object) {
+        throw new Error('Bytecode not found in artifact');
+      }
+
+      return artifact.bytecode.object;
+    } catch (error) {
+      console.error('Failed to load contract bytecode from compiled artifacts:', error);
+      throw new Error('Contract artifacts not found. Please run: forge build');
+    }
   }
 }
