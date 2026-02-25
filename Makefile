@@ -1,6 +1,9 @@
-.DEFAULT_GOAL := test
+.DEFAULT_GOAL := install
 
-.PHONY: test test-rust test-solidity
+.PHONY: install test test-rust test-solidity
+
+install:
+	cargo install --path .
 
 test: test-rust test-solidity
 
