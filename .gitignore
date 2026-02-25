@@ -70,3 +70,6 @@ broadcast/
 
 # Docker
 .dockerignore
+
+# Rust
+/target
