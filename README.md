@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="img/safepaw-square.png" alt="SafeClaw" width="400"/>
+  <img src="img/safepaw-village.png" alt="SafeClaw" width="400"/>
 </div>
 
 # SafePaw - Agents for the Paranoid
@@ -43,9 +43,18 @@ sudo snap install multipass
 ```
 
 2. Install safepaw
+```bash
+make test
+```
 
 ## Testing
 1. Run test suite using
-```
+```bash
 make test
+
+# Run rust tests
+make test-rust
+
+# Run solidity tests
+make test-solidity
 ```
