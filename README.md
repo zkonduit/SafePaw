@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="img/safepaw-village.png" alt="SafeClaw" width="400"/>
+  <img src="img/safepaw-village.png" alt="SafeClaw" width="800"/>
 </div>
 
 # SafePaw - Agents for the Paranoid
@@ -40,6 +40,7 @@ brew install multipass
 # Debian/Ubunttu Linux
 sudo snap install multipass
 
+# Windows: check the link above
 ```
 
 2. Install safepaw
