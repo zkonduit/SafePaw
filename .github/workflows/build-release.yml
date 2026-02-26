@@ -2,12 +2,54 @@ name: Build and Release
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - main
 
 jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new_tag: ${{ steps.tag_version.outputs.new_tag }}
+      should_release: ${{ steps.tag_version.outputs.new_tag != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set Cargo.toml version to match github tag
+        if: steps.tag_version.outputs.new_tag != ''
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag_version.outputs.new_tag }}
+        run: |
+          VERSION=${RELEASE_TAG#v}
+          sed -i 's/^version = ".*"/version = "'"$VERSION"'"/' Cargo.toml
+
+      - name: Commit files and update tag
+        if: steps.tag_version.outputs.new_tag != ''
+        env:
+          RELEASE_TAG: ${{ steps.tag_version.outputs.new_tag }}
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add Cargo.toml
+          git commit -m "ci: update Cargo.toml version to $RELEASE_TAG" || echo "No changes to commit"
+          git tag -f $RELEASE_TAG
+          git push origin $RELEASE_TAG --force
+
   test:
     name: Test on ${{ matrix.os }}
+    needs: bump-version
+    if: needs.bump-version.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -54,6 +96,8 @@ jobs:
 
   test-solidity:
     name: Test Solidity
+    needs: bump-version
+    if: needs.bump-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -82,6 +126,8 @@ jobs:
 
   lint:
     name: Lint Rust
+    needs: bump-version
+    if: needs.bump-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -210,9 +256,9 @@ jobs:
 
   create-release:
     name: Create Release
-    needs: build
+    needs: [bump-version, build]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: needs.bump-version.outputs.should_release == 'true'
 
     steps:
       - name: Checkout code
@@ -222,10 +268,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Get tag name
-        id: tag
-        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Rename binaries with proper names
         run: |
@@ -238,10 +280,10 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: Release ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ needs.bump-version.outputs.new_tag }}
+          name: Release ${{ needs.bump-version.outputs.new_tag }}
           body: |
-            Release ${{ steps.tag.outputs.tag }}
+            Release ${{ needs.bump-version.outputs.new_tag }}
 
             **Commit:** ${{ github.sha }}
 
