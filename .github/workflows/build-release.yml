@@ -6,8 +6,50 @@ on:
       - main
 
 jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new_tag: ${{ steps.tag_version.outputs.new_tag }}
+      should_release: ${{ steps.tag_version.outputs.new_tag != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set Cargo.toml version to match github tag
+        if: steps.tag_version.outputs.new_tag != ''
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag_version.outputs.new_tag }}
+        run: |
+          VERSION=${RELEASE_TAG#v}
+          sed -i 's/^version = ".*"/version = "'"$VERSION"'"/' Cargo.toml
+
+      - name: Commit files and update tag
+        if: steps.tag_version.outputs.new_tag != ''
+        env:
+          RELEASE_TAG: ${{ steps.tag_version.outputs.new_tag }}
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add Cargo.toml
+          git commit -m "ci: update Cargo.toml version to $RELEASE_TAG" || echo "No changes to commit"
+          git tag -f $RELEASE_TAG
+          git push origin $RELEASE_TAG --force
+
   test:
     name: Test on ${{ matrix.os }}
+    needs: bump-version
+    if: needs.bump-version.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -54,6 +96,8 @@ jobs:
 
   test-solidity:
     name: Test Solidity
+    needs: bump-version
+    if: needs.bump-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -82,6 +126,8 @@ jobs:
 
   lint:
     name: Lint Rust
+    needs: bump-version
+    if: needs.bump-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -210,9 +256,9 @@ jobs:
 
   create-release:
     name: Create Release
-    needs: build
+    needs: [bump-version, build]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: needs.bump-version.outputs.should_release == 'true'
 
     steps:
       - name: Checkout code
@@ -223,28 +269,44 @@ jobs:
         with:
           path: artifacts
 
+      - name: Rename binaries with proper names
+        run: |
+          mv artifacts/safepaw-linux-x86_64/safepaw artifacts/safepaw-linux-x86_64/safepaw-linux-x86_64
+          mv artifacts/safepaw-linux-aarch64/safepaw artifacts/safepaw-linux-aarch64/safepaw-linux-aarch64
+          mv artifacts/safepaw-macos-x86_64/safepaw artifacts/safepaw-macos-x86_64/safepaw-macos-x86_64
+          mv artifacts/safepaw-macos-aarch64/safepaw artifacts/safepaw-macos-aarch64/safepaw-macos-aarch64
+          mv artifacts/safepaw-windows-x86_64/safepaw.exe artifacts/safepaw-windows-x86_64/safepaw-windows-x86_64.exe
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
+          tag_name: ${{ needs.bump-version.outputs.new_tag }}
+          name: Release ${{ needs.bump-version.outputs.new_tag }}
           body: |
-            Automated build from commit ${{ github.sha }}
+            Release ${{ needs.bump-version.outputs.new_tag }}
 
-            **Changes:** ${{ github.event.head_commit.message }}
+            **Commit:** ${{ github.sha }}
 
             ## Binaries
-            - Linux x86_64
-            - Linux ARM64
-            - macOS x86_64 (Intel)
-            - macOS ARM64 (Apple Silicon)
-            - Windows x86_64
+
+            ### Linux (glibc-based distributions: Ubuntu, Debian, Fedora, etc.)
+            - `safepaw-linux-x86_64` - Linux x86_64 (64-bit Intel/AMD)
+            - `safepaw-linux-aarch64` - Linux ARM64 (64-bit ARM)
+
+            ### macOS
+            - `safepaw-macos-x86_64` - macOS Intel (x86_64)
+            - `safepaw-macos-aarch64` - macOS Apple Silicon (ARM64)
+
+            ### Windows
+            - `safepaw-windows-x86_64.exe` - Windows x86_64 (64-bit)
+
+            **Note:** Linux binaries are dynamically linked against glibc and may not work on musl-based distributions (Alpine Linux). If you need musl support, please build from source.
           files: |
-            artifacts/safepaw-linux-x86_64/safepaw
-            artifacts/safepaw-linux-aarch64/safepaw
-            artifacts/safepaw-macos-x86_64/safepaw
-            artifacts/safepaw-macos-aarch64/safepaw
-            artifacts/safepaw-windows-x86_64/safepaw.exe
+            artifacts/safepaw-linux-x86_64/safepaw-linux-x86_64
+            artifacts/safepaw-linux-aarch64/safepaw-linux-aarch64
+            artifacts/safepaw-macos-x86_64/safepaw-macos-x86_64
+            artifacts/safepaw-macos-aarch64/safepaw-macos-aarch64
+            artifacts/safepaw-windows-x86_64/safepaw-windows-x86_64.exe
           draft: false
           prerelease: false
         env:
