@@ -45,7 +45,7 @@ sudo snap install multipass
 
 2. Install safepaw
 ```bash
-make test
+make
 ```
 
 ## Testing

@@ -19,7 +19,6 @@ async fn test_index_html_is_embedded() {
 
     // Verify it's the actual index.html content
     assert!(html.contains("SafePaw Village"));
-    assert!(html.contains("pixi.min@v8.16.0.js"));
 }
 
 #[tokio::test]

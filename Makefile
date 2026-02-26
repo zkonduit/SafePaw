@@ -8,6 +8,7 @@ install:
 test: test-rust test-solidity
 
 test-rust:
+	cargo clippy
 	cargo nextest run
 
 test-solidity:
