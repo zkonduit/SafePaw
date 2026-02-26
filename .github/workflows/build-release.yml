@@ -145,7 +145,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: safepaw.exe
-            asset_name: safepaw-windows-x86_64.exe
+            asset_name: safepaw-windows-x86_64
 
     steps:
       - name: Checkout code
