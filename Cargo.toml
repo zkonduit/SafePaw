@@ -13,6 +13,9 @@ path = "src/main.rs"
 anyhow = "1.0"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "cors"] }
+rust-embed = "8.5"
+mime_guess = "2.0"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 clap = "4.5.60"
 hex = "0.4"

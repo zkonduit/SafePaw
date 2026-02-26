@@ -2,8 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use safepaw::{
-    cli::{VmApi, build_cli, run_vm_subcommand},
-    vm::{VmStatusResponse, VmSummary},
+    cli::{build_cli, run_vm_subcommand},
+    vm::{VmApi, VmStatusResponse, VmSummary},
 };
 
 #[derive(Default)]
@@ -26,7 +26,11 @@ impl Default for FakeVmApi {
 
 impl FakeVmApi {
     fn calls(&self) -> Vec<String> {
-        self.state.lock().expect("poisoned fake state").calls.clone()
+        self.state
+            .lock()
+            .expect("poisoned fake state")
+            .calls
+            .clone()
     }
 }
 

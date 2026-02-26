@@ -32,10 +32,7 @@ impl CommandExecutor for FakeExecutor {
         call.push(program.to_owned());
         call.extend(args.iter().cloned());
 
-        self.calls
-            .lock()
-            .expect("poisoned calls mutex")
-            .push(call);
+        self.calls.lock().expect("poisoned calls mutex").push(call);
 
         self.outputs
             .lock()
@@ -59,11 +56,11 @@ async fn launch_info_list_and_stop_flow_maps_to_multipass_commands() {
     ]);
     let multipass = MultipassCli::new(fake.clone());
 
-    multipass.launch("agent-1").await.expect("launch should work");
-    let info = multipass
-        .info("agent-1")
+    multipass
+        .launch("agent-1")
         .await
-        .expect("info should work");
+        .expect("launch should work");
+    let info = multipass.info("agent-1").await.expect("info should work");
     let listed = multipass.list().await.expect("list should work");
     multipass.stop("agent-1").await.expect("stop should work");
 

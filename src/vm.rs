@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Result;
 use async_trait::async_trait;
 use axum::{
     Json, Router,
@@ -97,6 +98,19 @@ pub enum VmError {
     },
 }
 
+// High-level VM API trait (used by CLI and server)
+#[async_trait]
+pub trait VmApi: Send + Sync {
+    async fn launch(&self, name: &str) -> Result<()>;
+    async fn start(&self, name: &str) -> Result<()>;
+    async fn stop(&self, name: &str) -> Result<()>;
+    async fn restart(&self, name: &str) -> Result<()>;
+    async fn delete(&self, name: &str) -> Result<()>;
+    async fn info(&self, name: &str) -> Result<VmStatusResponse>;
+    async fn list(&self) -> Result<Vec<VmSummary>>;
+}
+
+// Low-level Multipass CLI trait
 #[async_trait]
 pub trait Multipass: Send + Sync {
     async fn launch(&self, name: &str) -> Result<(), VmError>;
@@ -219,28 +233,31 @@ where
             reason: format!("missing VM entry for {name}"),
         })?;
 
-        let state = vm
-            .get("state")
-            .and_then(Value::as_str)
-            .ok_or_else(|| VmError::InvalidOutput {
-                action: "status",
-                reason: "missing VM state".to_owned(),
-            })?;
+        let state =
+            vm.get("state")
+                .and_then(Value::as_str)
+                .ok_or_else(|| VmError::InvalidOutput {
+                    action: "status",
+                    reason: "missing VM state".to_owned(),
+                })?;
 
         // Extract optional fields
-        let ipv4 = vm
-            .get("ipv4")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(String::from)
-                    .collect()
-            });
+        let ipv4 = vm.get("ipv4").and_then(Value::as_array).map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        });
 
         let release = vm.get("release").and_then(Value::as_str).map(String::from);
-        let image_release = vm.get("image_release").and_then(Value::as_str).map(String::from);
-        let cpu_count = vm.get("cpu_count").and_then(Value::as_str).map(String::from);
+        let image_release = vm
+            .get("image_release")
+            .and_then(Value::as_str)
+            .map(String::from);
+        let cpu_count = vm
+            .get("cpu_count")
+            .and_then(Value::as_str)
+            .map(String::from);
 
         let memory_total = vm
             .get("memory")
@@ -257,8 +274,14 @@ where
             .and_then(Value::as_object)
             .and_then(|disks| disks.values().next())
             .map(|disk| {
-                let total = disk.get("total").and_then(|v| v.as_str()).and_then(|s| s.parse::<u64>().ok());
-                let used = disk.get("used").and_then(|v| v.as_str()).and_then(|s| s.parse::<u64>().ok());
+                let total = disk
+                    .get("total")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<u64>().ok());
+                let used = disk
+                    .get("used")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<u64>().ok());
                 (total, used)
             })
             .unwrap_or((None, None));
@@ -283,42 +306,42 @@ where
             reason: err.to_string(),
         })?;
 
-        let list = value
-            .get("list")
-            .and_then(Value::as_array)
-            .ok_or_else(|| VmError::InvalidOutput {
-                action: "list",
-                reason: "missing list array".to_owned(),
-            })?;
+        let list =
+            value
+                .get("list")
+                .and_then(Value::as_array)
+                .ok_or_else(|| VmError::InvalidOutput {
+                    action: "list",
+                    reason: "missing list array".to_owned(),
+                })?;
 
         let mut vms = Vec::with_capacity(list.len());
         for item in list {
-            let name = item
-                .get("name")
-                .and_then(Value::as_str)
-                .ok_or_else(|| VmError::InvalidOutput {
-                    action: "list",
-                    reason: "missing VM name".to_owned(),
-                })?;
-            let state = item
-                .get("state")
-                .and_then(Value::as_str)
-                .ok_or_else(|| VmError::InvalidOutput {
+            let name =
+                item.get("name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| VmError::InvalidOutput {
+                        action: "list",
+                        reason: "missing VM name".to_owned(),
+                    })?;
+            let state = item.get("state").and_then(Value::as_str).ok_or_else(|| {
+                VmError::InvalidOutput {
                     action: "list",
                     reason: "missing VM state".to_owned(),
-                })?;
+                }
+            })?;
 
-            let ipv4 = item
-                .get("ipv4")
-                .and_then(Value::as_array)
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect()
-                });
+            let ipv4 = item.get("ipv4").and_then(Value::as_array).map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(String::from)
+                    .collect()
+            });
 
-            let release = item.get("release").and_then(Value::as_str).map(String::from);
+            let release = item
+                .get("release")
+                .and_then(Value::as_str)
+                .map(String::from);
 
             vms.push(VmSummary {
                 name: name.to_owned(),
@@ -365,8 +388,11 @@ where
     }
 
     async fn delete(&self, name: &str) -> Result<(), VmError> {
-        self.run_command("delete", vec!["delete".to_owned(), name.to_owned(), "--purge".to_owned()])
-            .await?;
+        self.run_command(
+            "delete",
+            vec!["delete".to_owned(), name.to_owned(), "--purge".to_owned()],
+        )
+        .await?;
         Ok(())
     }
 
@@ -388,9 +414,96 @@ where
 
     async fn list(&self) -> Result<Vec<VmSummary>, VmError> {
         let output = self
-            .run_command("list", vec!["list".to_owned(), "--format".to_owned(), "json".to_owned()])
+            .run_command(
+                "list",
+                vec!["list".to_owned(), "--format".to_owned(), "json".to_owned()],
+            )
             .await?;
         self.parse_list_output(&output.stdout)
+    }
+}
+
+// LocalVmApi: High-level API implementation using Multipass
+#[derive(Clone)]
+pub struct LocalVmApi {
+    multipass: Arc<dyn Multipass>,
+}
+
+impl LocalVmApi {
+    pub fn new(multipass: Arc<dyn Multipass>) -> Self {
+        Self { multipass }
+    }
+}
+
+#[async_trait]
+impl VmApi for LocalVmApi {
+    async fn launch(&self, name: &str) -> Result<()> {
+        info!(
+            vm_name = name,
+            "launching VM. This may take a couple of minutes."
+        );
+        self.multipass
+            .launch(name)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to launch VM {}: {}", name, e))?;
+        info!(vm_name = name, "VM launched successfully");
+        Ok(())
+    }
+
+    async fn start(&self, name: &str) -> Result<()> {
+        info!(vm_name = name, "starting VM");
+        self.multipass
+            .start(name)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to start VM {}: {}", name, e))?;
+        info!(vm_name = name, "VM started successfully");
+        Ok(())
+    }
+
+    async fn stop(&self, name: &str) -> Result<()> {
+        info!(vm_name = name, "stopping VM");
+        self.multipass
+            .stop(name)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to stop VM {}: {}", name, e))?;
+        info!(vm_name = name, "VM stopped successfully");
+        Ok(())
+    }
+
+    async fn restart(&self, name: &str) -> Result<()> {
+        info!(vm_name = name, "restarting VM");
+        self.multipass
+            .restart(name)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to restart VM {}: {}", name, e))?;
+        info!(vm_name = name, "VM restarted successfully");
+        Ok(())
+    }
+
+    async fn delete(&self, name: &str) -> Result<()> {
+        info!(vm_name = name, "deleting VM");
+        self.multipass
+            .delete(name)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to delete VM {}: {}", name, e))?;
+        info!(vm_name = name, "VM deleted successfully");
+        Ok(())
+    }
+
+    async fn info(&self, name: &str) -> Result<VmStatusResponse> {
+        info!(vm_name = name, "getting VM info");
+        self.multipass
+            .info(name)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to get info for VM {}: {}", name, e))
+    }
+
+    async fn list(&self) -> Result<Vec<VmSummary>> {
+        info!("listing VMs");
+        self.multipass
+            .list()
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to list VMs from multipass: {}", e))
     }
 }
 

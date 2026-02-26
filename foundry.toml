@@ -1,5 +1,6 @@
 [profile.default]
 src = "contracts"
+test = "solidity-tests"
 out = "out"
 libs = ["lib"]
 solc_version = "0.8.20"

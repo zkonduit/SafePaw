@@ -45,7 +45,7 @@ sudo snap install multipass
 
 2. Install safepaw
 ```bash
-make test
+make
 ```
 
 ## Testing
@@ -59,3 +59,6 @@ make test-rust
 # Run solidity tests
 make test-solidity
 ```
+
+# Credits
+1. [WebUI Assets -From : Sprout Lands -By : Cup Nooble](https://cupnooble.itch.io/sprout-lands-ui-pack)
