@@ -6,14 +6,14 @@ use axum::{
     Json, Router,
     body::Body,
     extract::State,
-    http::{header, HeaderValue, Response, StatusCode, Uri},
+    http::{HeaderValue, Response, StatusCode, Uri, header},
     response::IntoResponse,
     routing::get,
 };
 use rust_embed::RustEmbed;
-use tower_http::cors::CorsLayer;
 use serde::{Deserialize, Serialize};
 use tokio::signal;
+use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 
 use crate::vm::VmApi;

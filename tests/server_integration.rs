@@ -59,19 +59,14 @@ impl VmApi for FakeVmApi {
             image_release: Some("Ubuntu 22.04 LTS".to_owned()),
             cpu_count: Some("2".to_owned()),
             memory_total: Some(2 * 1024 * 1024 * 1024), // 2 GiB
-            memory_used: Some(1024 * 1024 * 1024),       // 1 GiB
-            disk_total: Some(10 * 1024 * 1024 * 1024),   // 10 GiB
-            disk_used: Some(5 * 1024 * 1024 * 1024),     // 5 GiB
+            memory_used: Some(1024 * 1024 * 1024),      // 1 GiB
+            disk_total: Some(10 * 1024 * 1024 * 1024),  // 10 GiB
+            disk_used: Some(5 * 1024 * 1024 * 1024),    // 5 GiB
         })
     }
 
     async fn list(&self) -> anyhow::Result<Vec<VmSummary>> {
-        Ok(self
-            .state
-            .lock()
-            .expect("poisoned fake state")
-            .vms
-            .clone())
+        Ok(self.state.lock().expect("poisoned fake state").vms.clone())
     }
 }
 
@@ -108,12 +103,7 @@ async fn list_vms_returns_empty_array_when_no_vms() {
     let app = create_api_router(app_state);
 
     let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/vms")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::builder().uri("/vms").body(Body::empty()).unwrap())
         .await
         .unwrap();
 
@@ -147,12 +137,7 @@ async fn list_vms_returns_vms() {
     let app = create_api_router(app_state);
 
     let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/vms")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::builder().uri("/vms").body(Body::empty()).unwrap())
         .await
         .unwrap();
 
