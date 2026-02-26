@@ -177,6 +177,7 @@ class SafePawVillage {
     constructor(stateManager) {
         this.app = null;
         this.stateManager = stateManager;
+        this.audioManager = new AudioManager();
         this.houses = new Map(); // Map of VM name -> house data
         this.tickerCallbacks = new Map(); // Track ticker callbacks for cleanup
         this.isInitialized = false;
@@ -240,8 +241,9 @@ class SafePawVillage {
         // Add drag/pan controls (AFTER layers are created)
         this.setupDragControls();
 
-        // Load assets
+        // Load assets (including audio)
         await this.loadAssets();
+        await this.audioManager.loadMusic();
 
         // Create the village
         this.createGround();
@@ -254,6 +256,14 @@ class SafePawVillage {
         document.getElementById('loading').style.display = 'none';
         document.getElementById('info-panel').style.display = 'block';
 
+        // Setup music toggle button
+        this.setupMusicToggle();
+
+        // Start background music if not muted
+        if (!this.audioManager.getState()) {
+            this.audioManager.play();
+        }
+
         // Start animation loop
         this.app.ticker.add(() => this.update());
 
@@ -261,6 +271,25 @@ class SafePawVillage {
         this.stateManager.startPolling(5000);
 
         this.isInitialized = true;
+    }
+
+    setupMusicToggle() {
+        const toggleButton = document.getElementById('mute-button');
+
+        // Set initial button state
+        this.updateMusicButtonIcon(toggleButton);
+
+        // Add click handler
+        toggleButton.addEventListener('click', () => {
+            this.audioManager.toggle();
+            this.updateMusicButtonIcon(toggleButton);
+        });
+    }
+
+    updateMusicButtonIcon(button) {
+        const isMuted = this.audioManager.getState();
+        button.textContent = isMuted ? '🔇' : '🔊';
+        button.title = isMuted ? 'Play music' : 'Stop music';
     }
 
     async loadAssets() {
