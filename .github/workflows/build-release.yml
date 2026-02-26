@@ -2,8 +2,8 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*.*.*'
 
 jobs:
   test:
@@ -212,7 +212,7 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
       - name: Checkout code
@@ -223,28 +223,48 @@ jobs:
         with:
           path: artifacts
 
+      - name: Get tag name
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Rename binaries with proper names
+        run: |
+          mv artifacts/safepaw-linux-x86_64/safepaw artifacts/safepaw-linux-x86_64/safepaw-linux-x86_64
+          mv artifacts/safepaw-linux-aarch64/safepaw artifacts/safepaw-linux-aarch64/safepaw-linux-aarch64
+          mv artifacts/safepaw-macos-x86_64/safepaw artifacts/safepaw-macos-x86_64/safepaw-macos-x86_64
+          mv artifacts/safepaw-macos-aarch64/safepaw artifacts/safepaw-macos-aarch64/safepaw-macos-aarch64
+          mv artifacts/safepaw-windows-x86_64/safepaw.exe artifacts/safepaw-windows-x86_64/safepaw-windows-x86_64.exe
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Release ${{ steps.tag.outputs.tag }}
           body: |
-            Automated build from commit ${{ github.sha }}
+            Release ${{ steps.tag.outputs.tag }}
 
-            **Changes:** ${{ github.event.head_commit.message }}
+            **Commit:** ${{ github.sha }}
 
             ## Binaries
-            - Linux x86_64
-            - Linux ARM64
-            - macOS x86_64 (Intel)
-            - macOS ARM64 (Apple Silicon)
-            - Windows x86_64
+
+            ### Linux (glibc-based distributions: Ubuntu, Debian, Fedora, etc.)
+            - `safepaw-linux-x86_64` - Linux x86_64 (64-bit Intel/AMD)
+            - `safepaw-linux-aarch64` - Linux ARM64 (64-bit ARM)
+
+            ### macOS
+            - `safepaw-macos-x86_64` - macOS Intel (x86_64)
+            - `safepaw-macos-aarch64` - macOS Apple Silicon (ARM64)
+
+            ### Windows
+            - `safepaw-windows-x86_64.exe` - Windows x86_64 (64-bit)
+
+            **Note:** Linux binaries are dynamically linked against glibc and may not work on musl-based distributions (Alpine Linux). If you need musl support, please build from source.
           files: |
-            artifacts/safepaw-linux-x86_64/safepaw
-            artifacts/safepaw-linux-aarch64/safepaw
-            artifacts/safepaw-macos-x86_64/safepaw
-            artifacts/safepaw-macos-aarch64/safepaw
-            artifacts/safepaw-windows-x86_64/safepaw.exe
+            artifacts/safepaw-linux-x86_64/safepaw-linux-x86_64
+            artifacts/safepaw-linux-aarch64/safepaw-linux-aarch64
+            artifacts/safepaw-macos-x86_64/safepaw-macos-x86_64
+            artifacts/safepaw-macos-aarch64/safepaw-macos-aarch64
+            artifacts/safepaw-windows-x86_64/safepaw-windows-x86_64.exe
           draft: false
           prerelease: false
         env:
