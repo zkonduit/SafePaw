@@ -30,23 +30,21 @@ impl FakeMultipass {
             .lock()
             .expect("poisoned fake state")
             .status_by_name
-            .insert(
-                name.to_owned(),
-                VmStatusResponse::minimal(name, state),
-            );
+            .insert(name.to_owned(), VmStatusResponse::minimal(name, state));
         self
     }
 
     fn with_list(self, listed_vms: Vec<VmSummary>) -> Self {
-        self.state
-            .lock()
-            .expect("poisoned fake state")
-            .listed_vms = listed_vms;
+        self.state.lock().expect("poisoned fake state").listed_vms = listed_vms;
         self
     }
 
     fn calls(&self) -> Vec<String> {
-        self.state.lock().expect("poisoned fake state").calls.clone()
+        self.state
+            .lock()
+            .expect("poisoned fake state")
+            .calls
+            .clone()
     }
 }
 
@@ -131,10 +129,7 @@ async fn spawn_vm_returns_created_and_launches_vm() {
         ))
         .expect("failed to build request");
 
-    let response = app
-        .oneshot(request)
-        .await
-        .expect("failed to call vm app");
+    let response = app.oneshot(request).await.expect("failed to call vm app");
 
     assert_eq!(response.status(), StatusCode::CREATED);
     assert_eq!(fake.calls(), vec!["launch:agent-1"]);
@@ -151,10 +146,7 @@ async fn get_vm_status_returns_current_vm_state() {
         .body(Body::empty())
         .expect("failed to build request");
 
-    let response = app
-        .oneshot(request)
-        .await
-        .expect("failed to call vm app");
+    let response = app.oneshot(request).await.expect("failed to call vm app");
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -182,10 +174,7 @@ async fn list_vms_returns_known_vms() {
         .body(Body::empty())
         .expect("failed to build request");
 
-    let response = app
-        .oneshot(request)
-        .await
-        .expect("failed to call vm app");
+    let response = app.oneshot(request).await.expect("failed to call vm app");
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -213,10 +202,7 @@ async fn terminate_vm_returns_no_content_and_stops_vm() {
         .body(Body::empty())
         .expect("failed to build request");
 
-    let response = app
-        .oneshot(request)
-        .await
-        .expect("failed to call vm app");
+    let response = app.oneshot(request).await.expect("failed to call vm app");
 
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     assert_eq!(fake.calls(), vec!["stop:agent-1"]);

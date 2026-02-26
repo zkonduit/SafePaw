@@ -1,11 +1,7 @@
-use std::sync::Arc;
-
 use anyhow::{Context, Result, bail};
-use async_trait::async_trait;
 use clap::{Arg, ArgMatches, Command};
-use tracing::info;
 
-use crate::vm::{Multipass, VmStatusResponse, VmSummary};
+use crate::vm::{VmApi, VmStatusResponse, VmSummary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmMode {
@@ -13,101 +9,38 @@ pub enum VmMode {
     Network,
 }
 
-#[async_trait]
-pub trait VmApi: Send + Sync {
-    async fn launch(&self, name: &str) -> Result<()>;
-    async fn start(&self, name: &str) -> Result<()>;
-    async fn stop(&self, name: &str) -> Result<()>;
-    async fn restart(&self, name: &str) -> Result<()>;
-    async fn delete(&self, name: &str) -> Result<()>;
-    async fn info(&self, name: &str) -> Result<VmStatusResponse>;
-    async fn list(&self) -> Result<Vec<VmSummary>>;
-}
-
-#[derive(Clone)]
-pub struct LocalVmApi {
-    multipass: Arc<dyn Multipass>,
-}
-
-impl LocalVmApi {
-    pub fn new(multipass: Arc<dyn Multipass>) -> Self {
-        Self { multipass }
-    }
-}
-
-#[async_trait]
-impl VmApi for LocalVmApi {
-    async fn launch(&self, name: &str) -> Result<()> {
-        info!(vm_name = name, "launching VM. This may take a couple of minutes.");
-        self.multipass
-            .launch(name)
-            .await
-            .with_context(|| format!("failed to launch VM {name}"))?;
-        info!(vm_name = name, "VM launched successfully");
-        Ok(())
-    }
-
-    async fn start(&self, name: &str) -> Result<()> {
-        info!(vm_name = name, "starting VM");
-        self.multipass
-            .start(name)
-            .await
-            .with_context(|| format!("failed to start VM {name}"))?;
-        info!(vm_name = name, "VM started successfully");
-        Ok(())
-    }
-
-    async fn stop(&self, name: &str) -> Result<()> {
-        info!(vm_name = name, "stopping VM");
-        self.multipass
-            .stop(name)
-            .await
-            .with_context(|| format!("failed to stop VM {name}"))?;
-        info!(vm_name = name, "VM stopped successfully");
-        Ok(())
-    }
-
-    async fn restart(&self, name: &str) -> Result<()> {
-        info!(vm_name = name, "restarting VM");
-        self.multipass
-            .restart(name)
-            .await
-            .with_context(|| format!("failed to restart VM {name}"))?;
-        info!(vm_name = name, "VM restarted successfully");
-        Ok(())
-    }
-
-    async fn delete(&self, name: &str) -> Result<()> {
-        info!(vm_name = name, "deleting VM");
-        self.multipass
-            .delete(name)
-            .await
-            .with_context(|| format!("failed to delete VM {name}"))?;
-        info!(vm_name = name, "VM deleted successfully");
-        Ok(())
-    }
-
-    async fn info(&self, name: &str) -> Result<VmStatusResponse> {
-        info!(vm_name = name, "getting VM info");
-        self.multipass
-            .info(name)
-            .await
-            .with_context(|| format!("failed to get info for VM {name}"))
-    }
-
-    async fn list(&self) -> Result<Vec<VmSummary>> {
-        info!("listing VMs");
-        self.multipass
-            .list()
-            .await
-            .context("failed to list VMs from multipass")
-    }
-}
-
 pub fn build_cli() -> Command {
     Command::new("safepaw")
         .about("Agents for the paranoid.")
         .long_about("SafePaw orchestrates isolated agent runtimes backed by Multipass VMs.")
+        .subcommand(
+            Command::new("start")
+                .about("Start SafePaw server daemon")
+                .long_about("Starts the SafePaw UI server and REST API daemon")
+                .arg(
+                    Arg::new("host")
+                        .long("host")
+                        .value_name("HOST")
+                        .default_value("0.0.0.0")
+                        .help("Host address to bind servers (e.g., 0.0.0.0, 127.0.0.1, localhost)"),
+                )
+                .arg(
+                    Arg::new("ui-port")
+                        .long("ui-port")
+                        .value_name("PORT")
+                        .default_value("8888")
+                        .value_parser(clap::value_parser!(u16))
+                        .help("Port for the UI server"),
+                )
+                .arg(
+                    Arg::new("api-port")
+                        .long("api-port")
+                        .value_name("PORT")
+                        .default_value("8889")
+                        .value_parser(clap::value_parser!(u16))
+                        .help("Port for the REST API server"),
+                ),
+        )
         .subcommand(
             Command::new("vm")
                 .about("Manage VM lifecycle through multipass")
@@ -172,10 +105,10 @@ pub fn resolve_vm_mode(matches: &ArgMatches) -> Result<VmMode> {
 fn format_vm_summary(vm: &VmSummary) -> String {
     let mut parts = vec![vm.name.clone(), vm.state.clone()];
 
-    if let Some(ref ipv4_addrs) = vm.ipv4 {
-        if !ipv4_addrs.is_empty() {
-            parts.push(ipv4_addrs.join(","));
-        }
+    if let Some(ref ipv4_addrs) = vm.ipv4
+        && !ipv4_addrs.is_empty()
+    {
+        parts.push(ipv4_addrs.join(","));
     }
 
     if let Some(ref release) = vm.release {
@@ -191,10 +124,10 @@ fn format_vm_info(info: &VmStatusResponse) -> Vec<String> {
         format!("State: {}", info.state),
     ];
 
-    if let Some(ref ipv4_addrs) = info.ipv4 {
-        if !ipv4_addrs.is_empty() {
-            lines.push(format!("IPv4:  {}", ipv4_addrs.join(", ")));
-        }
+    if let Some(ref ipv4_addrs) = info.ipv4
+        && !ipv4_addrs.is_empty()
+    {
+        lines.push(format!("IPv4:  {}", ipv4_addrs.join(", ")));
     }
 
     if let Some(ref release) = info.release {
@@ -213,14 +146,20 @@ fn format_vm_info(info: &VmStatusResponse) -> Vec<String> {
         let total_mb = total / 1024 / 1024;
         let used_mb = used / 1024 / 1024;
         let percent = (used as f64 / total as f64 * 100.0) as u64;
-        lines.push(format!("Memory: {} MiB / {} MiB ({}%)", used_mb, total_mb, percent));
+        lines.push(format!(
+            "Memory: {} MiB / {} MiB ({}%)",
+            used_mb, total_mb, percent
+        ));
     }
 
     if let (Some(total), Some(used)) = (info.disk_total, info.disk_used) {
         let total_gb = total / 1024 / 1024 / 1024;
         let used_gb = used / 1024 / 1024 / 1024;
         let percent = (used as f64 / total as f64 * 100.0) as u64;
-        lines.push(format!("Disk:   {} GiB / {} GiB ({}%)", used_gb, total_gb, percent));
+        lines.push(format!(
+            "Disk:   {} GiB / {} GiB ({}%)",
+            used_gb, total_gb, percent
+        ));
     }
 
     lines
@@ -263,10 +202,7 @@ pub async fn run_vm_subcommand(matches: &ArgMatches, api: &dyn VmApi) -> Result<
             if vms.is_empty() {
                 Ok(vec!["No VMs found".to_string()])
             } else {
-                Ok(vms
-                    .into_iter()
-                    .map(|vm| format_vm_summary(&vm))
-                    .collect())
+                Ok(vms.into_iter().map(|vm| format_vm_summary(&vm)).collect())
             }
         }
         _ => Ok(Vec::new()),

@@ -4,10 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use safepaw::{
-    cli::{LocalVmApi, VmApi},
-    vm::{Multipass, VmError, VmStatusResponse, VmSummary},
-};
+use safepaw::vm::{LocalVmApi, Multipass, VmApi, VmError, VmStatusResponse, VmSummary};
 
 #[derive(Default)]
 struct FakeState {
@@ -27,23 +24,21 @@ impl FakeMultipass {
             .lock()
             .expect("poisoned fake state")
             .statuses
-            .insert(
-                name.to_owned(),
-                VmStatusResponse::minimal(name, state),
-            );
+            .insert(name.to_owned(), VmStatusResponse::minimal(name, state));
         self
     }
 
     fn with_list(self, listed_vms: Vec<VmSummary>) -> Self {
-        self.state
-            .lock()
-            .expect("poisoned fake state")
-            .listed_vms = listed_vms;
+        self.state.lock().expect("poisoned fake state").listed_vms = listed_vms;
         self
     }
 
     fn calls(&self) -> Vec<String> {
-        self.state.lock().expect("poisoned fake state").calls.clone()
+        self.state
+            .lock()
+            .expect("poisoned fake state")
+            .calls
+            .clone()
     }
 }
 
@@ -156,9 +151,7 @@ async fn stop_stops_vm() {
     let fake = FakeMultipass::default();
     let api = LocalVmApi::new(Arc::new(fake.clone()));
 
-    api.stop("agent-1")
-        .await
-        .expect("stop should succeed");
+    api.stop("agent-1").await.expect("stop should succeed");
 
     assert_eq!(fake.calls(), vec!["stop:agent-1"]);
 }

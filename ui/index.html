@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafePaw Village</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+        }
+
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+
+        canvas:active {
+            cursor: grabbing;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            text-align: center;
+            z-index: 1000;
+        }
+
+        .loading-spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid white;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            max-width: 300px;
+            font-size: 14px;
+            z-index: 100;
+        }
+
+        #info-panel h2 {
+            margin: 0 0 15px 0;
+            color: #667eea;
+            font-size: 20px;
+        }
+
+        #info-panel p {
+            margin: 8px 0;
+            color: #333;
+            line-height: 1.5;
+        }
+
+        .vm-stat {
+            display: flex;
+            justify-content: space-between;
+            margin: 6px 0;
+            padding: 6px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .vm-stat:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            font-weight: 600;
+            color: #555;
+        }
+
+        .stat-value {
+            color: #667eea;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="loading-spinner"></div>
+        <p>Loading SafePaw Village...</p>
+    </div>
+
+    <div id="info-panel" style="display: none;">
+        <h2>🏡 SafePaw Village</h2>
+        <p>Welcome to back!</p>
+        <div id="vm-stats"></div>
+    </div>
+
+    <div id="game-container"></div>
+
+    <!-- PixiJS v8.16.0 (local copy for security) -->
+    <script src="pixi@v8.16.0.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
