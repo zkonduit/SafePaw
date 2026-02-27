@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use clap::{Arg, ArgMatches, Command};
 
-use crate::vm::{VmApi, VmStatusResponse, VmSummary};
+use crate::vm::{VmApi, VmStatusResponse, VmSummary, handlers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmMode {
@@ -169,40 +169,76 @@ pub async fn run_vm_subcommand(matches: &ArgMatches, api: &dyn VmApi) -> Result<
     match matches.subcommand() {
         Some(("launch", launch_matches)) => {
             let name = required_arg(launch_matches, "name")?;
-            api.launch(name).await?;
-            Ok(vec![format!("launched {name}")])
+            let result = handlers::launch_vm(api, name).await;
+            if result.success {
+                Ok(vec![result.message])
+            } else {
+                Err(anyhow::anyhow!(result.message))
+            }
         }
         Some(("start", start_matches)) => {
             let name = required_arg(start_matches, "name")?;
-            api.start(name).await?;
-            Ok(vec![format!("started {name}")])
+            let result = handlers::start_vm(api, name).await;
+            if result.success {
+                Ok(vec![result.message])
+            } else {
+                Err(anyhow::anyhow!(result.message))
+            }
         }
         Some(("stop", stop_matches)) => {
             let name = required_arg(stop_matches, "name")?;
-            api.stop(name).await?;
-            Ok(vec![format!("stopped {name}")])
+            let result = handlers::stop_vm(api, name).await;
+            if result.success {
+                Ok(vec![result.message])
+            } else {
+                Err(anyhow::anyhow!(result.message))
+            }
         }
         Some(("restart", restart_matches)) => {
             let name = required_arg(restart_matches, "name")?;
-            api.restart(name).await?;
-            Ok(vec![format!("restarted {name}")])
+            let result = handlers::restart_vm(api, name).await;
+            if result.success {
+                Ok(vec![result.message])
+            } else {
+                Err(anyhow::anyhow!(result.message))
+            }
         }
         Some(("delete", delete_matches)) => {
             let name = required_arg(delete_matches, "name")?;
-            api.delete(name).await?;
-            Ok(vec![format!("deleted {name}")])
+            let result = handlers::delete_vm(api, name).await;
+            if result.success {
+                Ok(vec![result.message])
+            } else {
+                Err(anyhow::anyhow!(result.message))
+            }
         }
         Some(("info", info_matches)) => {
             let name = required_arg(info_matches, "name")?;
-            let info = api.info(name).await?;
-            Ok(format_vm_info(&info))
+            let result = handlers::get_vm_info(api, name).await;
+            if result.success {
+                if let Some(info) = result.data {
+                    Ok(format_vm_info(&info))
+                } else {
+                    Ok(vec![result.message])
+                }
+            } else {
+                Err(anyhow::anyhow!(result.message))
+            }
         }
         Some(("list", _)) => {
-            let vms = api.list().await?;
-            if vms.is_empty() {
-                Ok(vec!["No VMs found".to_string()])
+            let result = handlers::list_vms(api).await;
+            if result.success {
+                if let Some(vms) = result.data {
+                    if vms.is_empty() {
+                        Ok(vec!["No VMs found".to_string()])
+                    } else {
+                        Ok(vms.into_iter().map(|vm| format_vm_summary(&vm)).collect())
+                    }
+                } else {
+                    Ok(vec![result.message])
+                }
             } else {
-                Ok(vms.into_iter().map(|vm| format_vm_summary(&vm)).collect())
+                Err(anyhow::anyhow!(result.message))
             }
         }
         _ => Ok(Vec::new()),

@@ -8,7 +8,7 @@ use axum::{
     extract::State,
     http::{HeaderValue, Response, StatusCode, Uri, header},
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use tokio::signal;
 use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 
-use crate::vm::VmApi;
+use crate::vm::{VmApi, handlers};
 
 // Embed the UI assets directly into the binary
 #[derive(RustEmbed)]
@@ -109,11 +109,119 @@ async fn get_vm_info(
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct LaunchVmRequest {
+    name: String,
+}
+
+async fn launch_vm(
+    State(state): State<AppState>,
+    Json(payload): Json<LaunchVmRequest>,
+) -> impl IntoResponse {
+    let result = handlers::launch_vm(state.vm_api.as_ref(), &payload.name).await;
+    if result.success {
+        (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": result.message})),
+        )
+            .into_response()
+    }
+}
+
+async fn start_vm(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let result = handlers::start_vm(state.vm_api.as_ref(), &name).await;
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": result.message})),
+        )
+            .into_response()
+    }
+}
+
+async fn stop_vm(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let result = handlers::stop_vm(state.vm_api.as_ref(), &name).await;
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": result.message})),
+        )
+            .into_response()
+    }
+}
+
+async fn restart_vm(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let result = handlers::restart_vm(state.vm_api.as_ref(), &name).await;
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": result.message})),
+        )
+            .into_response()
+    }
+}
+
+async fn delete_vm(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let result = handlers::delete_vm(state.vm_api.as_ref(), &name).await;
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": result.message})),
+        )
+            .into_response()
+    }
+}
+
 pub fn create_api_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
-        .route("/vms", get(list_vms))
-        .route("/vms/{name}", get(get_vm_info))
+        .route("/vms", get(list_vms).post(launch_vm))
+        .route("/vms/{name}", get(get_vm_info).delete(delete_vm))
+        .route("/vms/{name}/start", post(start_vm))
+        .route("/vms/{name}/stop", post(stop_vm))
+        .route("/vms/{name}/restart", post(restart_vm))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

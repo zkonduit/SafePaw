@@ -15,7 +15,7 @@ class AudioManager {
     async loadMusic() {
         try {
             const assetsPath = window.location.protocol + '//' + window.location.hostname + ':8888/assets';
-            const bgmPath = `${assetsPath}/music/bgm.mp3`;
+            const bgmPath = `${assetsPath}/music/bgm2.mp3`;
 
             this.bgm = new Audio(bgmPath);
             this.bgm.loop = true;

@@ -114,10 +114,9 @@
             font-weight: 700;
         }
 
-        #mute-button {
+        /* Control button styles */
+        .control-button {
             position: absolute;
-            top: 20px;
-            right: 20px;
             width: 50px;
             height: 50px;
             background: rgba(255, 255, 255, 0.95);
@@ -133,30 +132,63 @@
             z-index: 100;
         }
 
-        #mute-button:hover {
+        .control-button:hover {
             transform: scale(1.1);
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
         }
 
-        #mute-button:active {
+        .control-button:active {
             transform: scale(0.95);
+        }
+
+        #mute-button {
+            top: 20px;
+            right: 20px;
+        }
+
+        #launch-vm-button {
+            bottom: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            font-size: 28px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        #launch-vm-button:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
         }
 
         /* Responsive scaling */
         @media (max-width: 768px) {
-            #mute-button {
+            .control-button {
                 width: 45px;
                 height: 45px;
                 font-size: 20px;
             }
+            #launch-vm-button {
+                width: 55px;
+                height: 55px;
+                font-size: 24px;
+            }
         }
 
         @media (max-width: 480px) {
-            #mute-button {
+            .control-button {
                 width: 40px;
                 height: 40px;
                 font-size: 18px;
+            }
+            #mute-button {
                 top: 15px;
+                right: 15px;
+            }
+            #launch-vm-button {
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
+                bottom: 15px;
                 right: 15px;
             }
         }
@@ -174,13 +206,16 @@
         <div id="vm-stats"></div>
     </div>
 
-    <button id="mute-button" title="Toggle music">🔊</button>
+    <button id="mute-button" class="control-button" title="Toggle music">🔊</button>
+    <button id="launch-vm-button" class="control-button" title="Launch a new VM">+</button>
 
     <div id="game-container"></div>
 
     <!-- PixiJS v8.16.0 (local copy for security) -->
     <script src="pixi@v8.16.0.js"></script>
     <script src="audioManager.js"></script>
+    <script src="state.js"></script>
+    <script src="village.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

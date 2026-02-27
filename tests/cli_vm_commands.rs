@@ -119,7 +119,7 @@ async fn vm_launch_command_produces_expected_output_and_call() {
     .await
     .expect("launch command failed");
 
-    assert_eq!(lines, vec!["launched agent-1"]);
+    assert_eq!(lines, vec!["VM 'agent-1' launched successfully"]);
     assert_eq!(api.calls(), vec!["launch:agent-1"]);
 }
 
@@ -179,6 +179,6 @@ async fn vm_stop_command_produces_expected_output_and_call() {
     .await
     .expect("stop command failed");
 
-    assert_eq!(lines, vec!["stopped agent-1"]);
+    assert_eq!(lines, vec!["VM 'agent-1' stopped successfully"]);
     assert_eq!(api.calls(), vec!["stop:agent-1"]);
 }

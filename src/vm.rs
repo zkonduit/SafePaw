@@ -507,6 +507,103 @@ impl VmApi for LocalVmApi {
     }
 }
 
+// ============================================================================
+// Unified Handlers - Used by both CLI and REST API
+// ============================================================================
+
+/// Result type for handlers - contains success message or error
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HandlerResult<T> {
+    pub success: bool,
+    pub data: Option<T>,
+    pub message: String,
+}
+
+impl<T> HandlerResult<T> {
+    pub fn ok(data: T, message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            data: Some(data),
+            message: message.into(),
+        }
+    }
+
+    pub fn ok_with_message(message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            data: None,
+            message: message.into(),
+        }
+    }
+
+    pub fn err(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            data: None,
+            message: message.into(),
+        }
+    }
+}
+
+/// Unified handlers for VM operations - reusable by CLI and REST API
+pub mod handlers {
+    use super::*;
+
+    pub async fn launch_vm(api: &dyn VmApi, name: &str) -> HandlerResult<()> {
+        match api.launch(name).await {
+            Ok(_) => HandlerResult::ok_with_message(format!("VM '{}' launched successfully", name)),
+            Err(e) => HandlerResult::err(format!("Failed to launch VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn start_vm(api: &dyn VmApi, name: &str) -> HandlerResult<()> {
+        match api.start(name).await {
+            Ok(_) => HandlerResult::ok_with_message(format!("VM '{}' started successfully", name)),
+            Err(e) => HandlerResult::err(format!("Failed to start VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn stop_vm(api: &dyn VmApi, name: &str) -> HandlerResult<()> {
+        match api.stop(name).await {
+            Ok(_) => HandlerResult::ok_with_message(format!("VM '{}' stopped successfully", name)),
+            Err(e) => HandlerResult::err(format!("Failed to stop VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn restart_vm(api: &dyn VmApi, name: &str) -> HandlerResult<()> {
+        match api.restart(name).await {
+            Ok(_) => {
+                HandlerResult::ok_with_message(format!("VM '{}' restarted successfully", name))
+            }
+            Err(e) => HandlerResult::err(format!("Failed to restart VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn delete_vm(api: &dyn VmApi, name: &str) -> HandlerResult<()> {
+        match api.delete(name).await {
+            Ok(_) => HandlerResult::ok_with_message(format!("VM '{}' deleted successfully", name)),
+            Err(e) => HandlerResult::err(format!("Failed to delete VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn get_vm_info(api: &dyn VmApi, name: &str) -> HandlerResult<VmStatusResponse> {
+        match api.info(name).await {
+            Ok(info) => HandlerResult::ok(info, format!("Retrieved info for VM '{}'", name)),
+            Err(e) => HandlerResult::err(format!("Failed to get info for VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn list_vms(api: &dyn VmApi) -> HandlerResult<Vec<VmSummary>> {
+        match api.list().await {
+            Ok(vms) => {
+                let count = vms.len();
+                HandlerResult::ok(vms, format!("Found {} VM(s)", count))
+            }
+            Err(e) => HandlerResult::err(format!("Failed to list VMs: {}", e)),
+        }
+    }
+}
+
 #[derive(Clone)]
 struct VmApiState {
     multipass: Arc<dyn Multipass>,
