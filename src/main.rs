@@ -2,7 +2,8 @@ use std::env;
 use std::sync::Arc;
 
 use anyhow::bail;
-use safepaw::cli::{VmMode, build_cli, resolve_vm_mode, run_vm_subcommand};
+use safepaw::agent::LocalAgentManager;
+use safepaw::cli::{VmMode, build_cli, resolve_vm_mode, run_agent_subcommand, run_vm_subcommand};
 use safepaw::vm::{LocalVmApi, MultipassCli, TokioCommandExecutor};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
@@ -44,9 +45,12 @@ async fn run() -> anyhow::Result<()> {
             let api_port = *start_matches.get_one::<u16>("api-port").unwrap_or(&8889);
 
             let multipass = Arc::new(MultipassCli::new(TokioCommandExecutor));
-            let api = Arc::new(LocalVmApi::new(multipass)) as Arc<dyn safepaw::vm::VmApi>;
+            let vm_api =
+                Arc::new(LocalVmApi::new(multipass.clone())) as Arc<dyn safepaw::vm::VmApi>;
+            let agent_manager = Arc::new(LocalAgentManager::new(vm_api.clone())?)
+                as Arc<dyn safepaw::agent::AgentManager>;
 
-            safepaw::server::run_server(api, host, ui_port, api_port).await?;
+            safepaw::server::run_server(vm_api, agent_manager, host, ui_port, api_port).await?;
         }
         Some(("vm", vm_matches)) => match resolve_vm_mode(vm_matches)? {
             VmMode::Local => {
@@ -61,6 +65,15 @@ async fn run() -> anyhow::Result<()> {
                 bail!("network mode is planned but not implemented yet");
             }
         },
+        Some(("agent", agent_matches)) => {
+            let multipass = Arc::new(MultipassCli::new(TokioCommandExecutor));
+            let vm_api = Arc::new(LocalVmApi::new(multipass.clone()));
+            let agent_manager = LocalAgentManager::new(vm_api)?;
+            let lines = run_agent_subcommand(agent_matches, &agent_manager).await?;
+            for line in lines {
+                println!("{line}");
+            }
+        }
         _ => {}
     }
 

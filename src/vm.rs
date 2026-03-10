@@ -108,6 +108,8 @@ pub trait VmApi: Send + Sync {
     async fn delete(&self, name: &str) -> Result<()>;
     async fn info(&self, name: &str) -> Result<VmStatusResponse>;
     async fn list(&self) -> Result<Vec<VmSummary>>;
+    async fn exec(&self, name: &str, command: &[String]) -> Result<CommandOutput>;
+    async fn transfer(&self, name: &str, source: &str, destination: &str) -> Result<()>;
 }
 
 // Low-level Multipass CLI trait
@@ -120,6 +122,8 @@ pub trait Multipass: Send + Sync {
     async fn delete(&self, name: &str) -> Result<(), VmError>;
     async fn info(&self, name: &str) -> Result<VmStatusResponse, VmError>;
     async fn list(&self) -> Result<Vec<VmSummary>, VmError>;
+    async fn exec(&self, name: &str, command: &[String]) -> Result<CommandOutput, VmError>;
+    async fn transfer(&self, name: &str, source: &str, destination: &str) -> Result<(), VmError>;
 }
 
 #[derive(Debug, Clone)]
@@ -421,6 +425,28 @@ where
             .await?;
         self.parse_list_output(&output.stdout)
     }
+
+    async fn exec(&self, name: &str, command: &[String]) -> Result<CommandOutput, VmError> {
+        let mut args = vec!["exec".to_owned(), name.to_owned(), "--".to_owned()];
+        args.extend(command.iter().cloned());
+
+        // Note: exec returns the command output directly, not through JSON
+        // So we return the full CommandOutput including status_code
+        self.run_command("exec", args).await
+    }
+
+    async fn transfer(&self, name: &str, source: &str, destination: &str) -> Result<(), VmError> {
+        self.run_command(
+            "transfer",
+            vec![
+                "transfer".to_owned(),
+                source.to_owned(),
+                format!("{}:{}", name, destination),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
 }
 
 // LocalVmApi: High-level API implementation using Multipass
@@ -504,6 +530,93 @@ impl VmApi for LocalVmApi {
             .list()
             .await
             .map_err(|e| anyhow::anyhow!("failed to list VMs from multipass: {}", e))
+    }
+
+    async fn exec(&self, name: &str, command: &[String]) -> Result<CommandOutput> {
+        info!(vm_name = name, command = ?command, "executing command in VM");
+        self.multipass
+            .exec(name, command)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to exec command in VM {}: {}", name, e))
+    }
+
+    async fn transfer(&self, name: &str, source: &str, destination: &str) -> Result<()> {
+        info!(
+            vm_name = name,
+            source = source,
+            dest = destination,
+            "transferring file to VM"
+        );
+        self.multipass
+            .transfer(name, source, destination)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to transfer file to VM {}: {}", name, e))?;
+        info!(vm_name = name, "file transferred successfully");
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Unified Handlers - Used by both CLI and REST API
+// ============================================================================
+
+/// Unified handlers for VM operations - reusable by CLI and REST API
+pub mod handlers {
+    use super::*;
+    use crate::util::HandlerResult;
+
+    pub async fn launch_vm(api: &dyn VmApi, name: &str) -> HandlerResult<()> {
+        match api.launch(name).await {
+            Ok(_) => HandlerResult::ok_with_message(format!("VM '{}' launched successfully", name)),
+            Err(e) => HandlerResult::err(format!("Failed to launch VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn start_vm(api: &dyn VmApi, name: &str) -> HandlerResult<()> {
+        match api.start(name).await {
+            Ok(_) => HandlerResult::ok_with_message(format!("VM '{}' started successfully", name)),
+            Err(e) => HandlerResult::err(format!("Failed to start VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn stop_vm(api: &dyn VmApi, name: &str) -> HandlerResult<()> {
+        match api.stop(name).await {
+            Ok(_) => HandlerResult::ok_with_message(format!("VM '{}' stopped successfully", name)),
+            Err(e) => HandlerResult::err(format!("Failed to stop VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn restart_vm(api: &dyn VmApi, name: &str) -> HandlerResult<()> {
+        match api.restart(name).await {
+            Ok(_) => {
+                HandlerResult::ok_with_message(format!("VM '{}' restarted successfully", name))
+            }
+            Err(e) => HandlerResult::err(format!("Failed to restart VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn delete_vm(api: &dyn VmApi, name: &str) -> HandlerResult<()> {
+        match api.delete(name).await {
+            Ok(_) => HandlerResult::ok_with_message(format!("VM '{}' deleted successfully", name)),
+            Err(e) => HandlerResult::err(format!("Failed to delete VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn get_vm_info(api: &dyn VmApi, name: &str) -> HandlerResult<VmStatusResponse> {
+        match api.info(name).await {
+            Ok(info) => HandlerResult::ok(info, format!("Retrieved info for VM '{}'", name)),
+            Err(e) => HandlerResult::err(format!("Failed to get info for VM '{}': {}", name, e)),
+        }
+    }
+
+    pub async fn list_vms(api: &dyn VmApi) -> HandlerResult<Vec<VmSummary>> {
+        match api.list().await {
+            Ok(vms) => {
+                let count = vms.len();
+                HandlerResult::ok(vms, format!("Found {} VM(s)", count))
+            }
+            Err(e) => HandlerResult::err(format!("Failed to list VMs: {}", e)),
+        }
     }
 }
 

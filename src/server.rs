@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use axum::{
     Json, Router,
     body::Body,
-    extract::State,
-    http::{HeaderValue, Response, StatusCode, Uri, header},
+    extract::{State, rejection::JsonRejection},
+    http::{HeaderValue, Method, Response, StatusCode, Uri, header},
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,9 @@ use tokio::signal;
 use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 
-use crate::vm::VmApi;
+use crate::agent::{AgentManager, AgentType, OnboardAgentRequest};
+use crate::util::HandlerResult;
+use crate::vm::{VmApi, handlers};
 
 // Embed the UI assets directly into the binary
 #[derive(RustEmbed)]
@@ -26,11 +28,15 @@ struct UiAssets;
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) vm_api: Arc<dyn VmApi>,
+    pub(crate) agent_manager: Arc<dyn AgentManager>,
 }
 
 impl AppState {
-    pub fn new(vm_api: Arc<dyn VmApi>) -> Self {
-        Self { vm_api }
+    pub fn new(vm_api: Arc<dyn VmApi>, agent_manager: Arc<dyn AgentManager>) -> Self {
+        Self {
+            vm_api,
+            agent_manager,
+        }
     }
 }
 
@@ -109,11 +115,383 @@ async fn get_vm_info(
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct LaunchVmRequest {
+    name: String,
+}
+
+async fn launch_vm(
+    State(state): State<AppState>,
+    Json(payload): Json<LaunchVmRequest>,
+) -> impl IntoResponse {
+    let result = handlers::launch_vm(state.vm_api.as_ref(), &payload.name).await;
+    if result.success {
+        (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": result.message})),
+        )
+            .into_response()
+    }
+}
+
+async fn start_vm(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let result = handlers::start_vm(state.vm_api.as_ref(), &name).await;
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": result.message})),
+        )
+            .into_response()
+    }
+}
+
+async fn stop_vm(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let result = handlers::stop_vm(state.vm_api.as_ref(), &name).await;
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": result.message})),
+        )
+            .into_response()
+    }
+}
+
+async fn restart_vm(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let result = handlers::restart_vm(state.vm_api.as_ref(), &name).await;
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": result.message})),
+        )
+            .into_response()
+    }
+}
+
+async fn delete_vm(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let result = handlers::delete_vm(state.vm_api.as_ref(), &name).await;
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": result.message})),
+        )
+            .into_response()
+    }
+}
+
+fn error_response(
+    status: StatusCode,
+    error: impl Into<String>,
+    details: Option<serde_json::Value>,
+) -> Response<Body> {
+    let mut payload = serde_json::json!({
+        "success": false,
+        "error": error.into(),
+    });
+
+    if let Some(details) = details {
+        payload
+            .as_object_mut()
+            .expect("error payload should be a JSON object")
+            .insert("details".to_owned(), details);
+    }
+
+    (status, Json(payload)).into_response()
+}
+
+fn handler_error_response<T>(status: StatusCode, result: HandlerResult<T>) -> Response<Body> {
+    error_response(status, result.message, result.error_details)
+}
+
+fn agent_request_rejection_response(
+    operation: &str,
+    vm_name: &str,
+    rejection: JsonRejection,
+) -> Response<Body> {
+    let reason = rejection.body_text();
+    error_response(
+        StatusCode::BAD_REQUEST,
+        format!(
+            "Invalid agent request for operation '{}' in VM '{}': {}",
+            operation, vm_name, reason
+        ),
+        Some(serde_json::json!({
+            "code": "agent_request_invalid",
+            "operation": operation,
+            "vm_name": vm_name,
+            "causes": [reason],
+        })),
+    )
+}
+
+// ============================================================================
+// Agent REST API DTOs and Handlers
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+struct InstallAgentRequest {
+    agent_type: AgentType,
+}
+
+#[derive(Debug, Deserialize)]
+struct CheckAgentRequest {
+    agent_type: AgentType,
+}
+
+/// POST /agents/{vm_name}/install
+async fn install_agent(
+    State(state): State<AppState>,
+    axum::extract::Path(vm_name): axum::extract::Path<String>,
+    payload: Result<Json<InstallAgentRequest>, JsonRejection>,
+) -> impl IntoResponse {
+    let payload = match payload {
+        Ok(Json(payload)) => payload,
+        Err(rejection) => {
+            return agent_request_rejection_response("install_agent", &vm_name, rejection);
+        }
+    };
+
+    let result = crate::agent::handlers::install_agent(
+        state.agent_manager.as_ref(),
+        &vm_name,
+        payload.agent_type,
+    )
+    .await;
+
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        handler_error_response(StatusCode::INTERNAL_SERVER_ERROR, result)
+    }
+}
+
+/// POST /agents/{vm_name}/check
+async fn check_agent_installed(
+    State(state): State<AppState>,
+    axum::extract::Path(vm_name): axum::extract::Path<String>,
+    payload: Result<Json<CheckAgentRequest>, JsonRejection>,
+) -> impl IntoResponse {
+    let payload = match payload {
+        Ok(Json(payload)) => payload,
+        Err(rejection) => {
+            return agent_request_rejection_response("check_agent_installed", &vm_name, rejection);
+        }
+    };
+
+    let result = crate::agent::handlers::check_agent_installed(
+        state.agent_manager.as_ref(),
+        &vm_name,
+        payload.agent_type,
+    )
+    .await;
+
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "installed": result.data.unwrap_or(false),
+                "message": result.message
+            })),
+        )
+            .into_response()
+    } else {
+        handler_error_response(StatusCode::INTERNAL_SERVER_ERROR, result)
+    }
+}
+
+/// POST /agents/{vm_name}/onboard
+async fn onboard_agent(
+    State(state): State<AppState>,
+    axum::extract::Path(vm_name): axum::extract::Path<String>,
+    payload: Result<Json<OnboardAgentRequest>, JsonRejection>,
+) -> impl IntoResponse {
+    let payload = match payload {
+        Ok(Json(payload)) => payload,
+        Err(rejection) => {
+            return agent_request_rejection_response("onboard_agent", &vm_name, rejection);
+        }
+    };
+
+    let result =
+        crate::agent::handlers::onboard_agent(state.agent_manager.as_ref(), &vm_name, payload)
+            .await;
+
+    if result.success {
+        (
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "success": true,
+                "agent": result.data,
+                "message": result.message
+            })),
+        )
+            .into_response()
+    } else {
+        handler_error_response(StatusCode::INTERNAL_SERVER_ERROR, result)
+    }
+}
+
+/// GET /agents/{vm_name}
+async fn list_agents(
+    State(state): State<AppState>,
+    axum::extract::Path(vm_name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let result = crate::agent::handlers::list_agents(state.agent_manager.as_ref(), &vm_name).await;
+
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "agents": result.data,
+                "message": result.message
+            })),
+        )
+            .into_response()
+    } else {
+        handler_error_response(StatusCode::INTERNAL_SERVER_ERROR, result)
+    }
+}
+
+/// GET /agents/{vm_name}/{agent_id}
+async fn get_agent(
+    State(state): State<AppState>,
+    axum::extract::Path((vm_name, agent_id)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    let result =
+        crate::agent::handlers::get_agent(state.agent_manager.as_ref(), &vm_name, &agent_id).await;
+
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "agent": result.data,
+                "message": result.message
+            })),
+        )
+            .into_response()
+    } else {
+        handler_error_response(StatusCode::NOT_FOUND, result)
+    }
+}
+
+/// POST /agents/{vm_name}/{agent_id}/stop
+async fn stop_agent(
+    State(state): State<AppState>,
+    axum::extract::Path((vm_name, agent_id)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    let result =
+        crate::agent::handlers::stop_agent(state.agent_manager.as_ref(), &vm_name, &agent_id).await;
+
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        handler_error_response(StatusCode::INTERNAL_SERVER_ERROR, result)
+    }
+}
+
+/// DELETE /agents/{vm_name}/{agent_id}
+async fn delete_agent(
+    State(state): State<AppState>,
+    axum::extract::Path((vm_name, agent_id)): axum::extract::Path<(String, String)>,
+) -> impl IntoResponse {
+    let result =
+        crate::agent::handlers::delete_agent(state.agent_manager.as_ref(), &vm_name, &agent_id)
+            .await;
+
+    if result.success {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "message": result.message})),
+        )
+            .into_response()
+    } else {
+        handler_error_response(StatusCode::INTERNAL_SERVER_ERROR, result)
+    }
+}
+
+async fn api_not_found(method: Method, uri: Uri) -> impl IntoResponse {
+    error_response(
+        StatusCode::NOT_FOUND,
+        format!("API route not found: {} {}", method, uri.path()),
+        Some(serde_json::json!({
+            "code": "route_not_found",
+            "method": method.as_str(),
+            "path": uri.path(),
+        })),
+    )
+}
+
 pub fn create_api_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
-        .route("/vms", get(list_vms))
-        .route("/vms/{name}", get(get_vm_info))
+        .route("/vms", get(list_vms).post(launch_vm))
+        .route("/vms/{name}", get(get_vm_info).delete(delete_vm))
+        .route("/vms/{name}/start", post(start_vm))
+        .route("/vms/{name}/stop", post(stop_vm))
+        .route("/vms/{name}/restart", post(restart_vm))
+        // Agent routes
+        .route("/agents/{vm_name}/install", post(install_agent))
+        .route("/agents/{vm_name}/check", post(check_agent_installed))
+        .route("/agents/{vm_name}/onboard", post(onboard_agent))
+        .route("/agents/{vm_name}", get(list_agents))
+        .route(
+            "/agents/{vm_name}/{agent_id}",
+            get(get_agent).delete(delete_agent),
+        )
+        .route("/agents/{vm_name}/{agent_id}/stop", post(stop_agent))
+        .fallback(api_not_found)
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -153,11 +531,12 @@ async fn serve_embedded_file(uri: Uri) -> impl IntoResponse {
 
 pub async fn run_server(
     vm_api: Arc<dyn VmApi>,
+    agent_manager: Arc<dyn AgentManager>,
     host: &str,
     ui_port: u16,
     api_port: u16,
 ) -> Result<()> {
-    let state = AppState::new(vm_api);
+    let state = AppState::new(vm_api, agent_manager);
 
     // Parse host address
     let host_addr: std::net::IpAddr = host

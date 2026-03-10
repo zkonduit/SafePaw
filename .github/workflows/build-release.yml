@@ -13,6 +13,7 @@ jobs:
     outputs:
       new_tag: ${{ steps.tag_version.outputs.new_tag }}
       should_release: ${{ steps.tag_version.outputs.new_tag != '' }}
+      changelog: ${{ steps.tag_version.outputs.changelog }}
 
     steps:
       - uses: actions/checkout@v4
@@ -277,6 +278,13 @@ jobs:
           mv artifacts/safepaw-macos-aarch64/safepaw artifacts/safepaw-macos-aarch64/safepaw-macos-aarch64
           mv artifacts/safepaw-windows-x86_64/safepaw.exe artifacts/safepaw-windows-x86_64/safepaw-windows-x86_64.exe
 
+      - name: Make binaries executable
+        run: |
+          chmod +x artifacts/safepaw-linux-x86_64/safepaw-linux-x86_64
+          chmod +x artifacts/safepaw-linux-aarch64/safepaw-linux-aarch64
+          chmod +x artifacts/safepaw-macos-x86_64/safepaw-macos-x86_64
+          chmod +x artifacts/safepaw-macos-aarch64/safepaw-macos-aarch64
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -287,11 +295,16 @@ jobs:
 
             **Commit:** ${{ github.sha }}
 
+            ## What's Changed
+
+            ${{ needs.bump-version.outputs.changelog }}
+
             ## Binaries
 
             ### Linux (glibc-based distributions: Ubuntu, Debian, Fedora, etc.)
             - `safepaw-linux-x86_64` - Linux x86_64 (64-bit Intel/AMD)
             - `safepaw-linux-aarch64` - Linux ARM64 (64-bit ARM)
+            Note that musl distributions (Alpine, etc.) are not officially supported at the moment.
 
             ### macOS
             - `safepaw-macos-x86_64` - macOS Intel (x86_64)
@@ -300,7 +313,6 @@ jobs:
             ### Windows
             - `safepaw-windows-x86_64.exe` - Windows x86_64 (64-bit)
 
-            **Note:** Linux binaries are dynamically linked against glibc and may not work on musl-based distributions (Alpine Linux). If you need musl support, please build from source.
           files: |
             artifacts/safepaw-linux-x86_64/safepaw-linux-x86_64
             artifacts/safepaw-linux-aarch64/safepaw-linux-aarch64
