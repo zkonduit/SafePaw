@@ -8,6 +8,10 @@
 
 SafePaw is a security focused agent orchestration layer for the paranoid. It features a MMORPG RTS style UI for managing agents.
 
+<div align="center">
+  <img src="img/village-ui.png" alt="Village UI" width="800"/>
+</div>
+
 ## Install
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zkonduit/SafePaw/main/install.sh | bash
