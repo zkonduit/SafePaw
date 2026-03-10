@@ -4,6 +4,7 @@ class VMStateManager extends EventTarget {
     constructor() {
         super();
         this.vms = [];
+        this.agents = new Map(); // Map of VM name -> array of agents
         this.isPolling = false;
         this.pollInterval = null;
     }
@@ -44,13 +45,26 @@ class VMStateManager extends EventTarget {
 
             const vmList = await response.json();
 
-            // Fetch detailed info for each VM
+            // Fetch detailed info for each VM and their agents
             const detailedVMs = await Promise.all(
                 vmList.map(async (vm) => {
                     try {
                         const infoResponse = await fetch(`${API_BASE}/vms/${vm.name}`);
                         if (infoResponse.ok) {
-                            return await infoResponse.json();
+                            const vmInfo = await infoResponse.json();
+
+                            // Also fetch agents for this VM
+                            try {
+                                const agentsResponse = await fetch(`${API_BASE}/agents/${vm.name}`);
+                                if (agentsResponse.ok) {
+                                    const agentsData = await agentsResponse.json();
+                                    this.agents.set(vm.name, agentsData.agents || []);
+                                }
+                            } catch (e) {
+                                console.warn(`[STATE] Failed to fetch agents for ${vm.name}:`, e);
+                            }
+
+                            return vmInfo;
                         }
                         return vm;
                     } catch (e) {
@@ -138,5 +152,13 @@ class VMStateManager extends EventTarget {
 
     getVMs() {
         return this.vms;
+    }
+
+    getAgents(vmName) {
+        return this.agents.get(vmName) || [];
+    }
+
+    getAllAgents() {
+        return this.agents;
     }
 }

@@ -4,7 +4,25 @@
 
 # SafePaw - Agents for the Paranoid
 
-SafePaw is a security focused agent orchestration layer.
+**IMPORTANT: this is ALPHA software and undergoing active development.**
+
+SafePaw is a security focused agent orchestration layer for the paranoid. It features a MMORPG RTS style UI for managing agents.
+
+## Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/zkonduit/SafePaw/main/install.sh | bash
+```
+
+The installer defaults to the latest release on `https://github.com/zkonduit/SafePaw/releases`, installs `multipass` when it can, and then places `safepaw` in `/usr/local/bin` or `~/.local/bin`.
+
+Pin a release or change the install location with environment variables:
+```bash
+curl -fsSL https://raw.githubusercontent.com/zkonduit/SafePaw/main/install.sh | \
+  SAFEPAW_VERSION=v0.1.0 SAFEPAW_INSTALL_DIR="$HOME/.local/bin" bash
+```
+
+If automatic `multipass` installation is not supported on the host, the script exits with the official Multipass install guide.
+
 
 ## Design Philosophy
 1. Agents are untrusted plugins, everything is treated with reasonable caution.
@@ -30,7 +48,7 @@ It's designed as a multi-agent swarm system with strong context isolation betwee
 
 6. Context and workspace files are stored on the host machine and only selectively shared with the VMs as needed.
 
-## Quickstart
+## Development Instructions
 1. Install [multipass](https://documentation.ubuntu.com/multipass/stable/how-to-guides/install-multipass/) this is needed to use the VMs required for safepaw
 
 ```bash

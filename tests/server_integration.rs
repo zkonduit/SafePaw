@@ -6,9 +6,12 @@ use axum::{
     http::{Request, StatusCode},
 };
 use safepaw::{
+    agent::LocalAgentManager,
+    db::SafePawDb,
     server::create_api_router,
     vm::{VmApi, VmStatusResponse, VmSummary},
 };
+use tempfile::TempDir;
 use tower::ServiceExt;
 
 #[derive(Default)]
@@ -26,6 +29,17 @@ impl FakeVmApi {
         self.state.lock().expect("poisoned fake state").vms = vms;
         self
     }
+}
+
+fn build_app(fake_api: Arc<FakeVmApi>) -> (TempDir, axum::Router) {
+    let temp_dir = tempfile::tempdir().expect("temp dir should be created");
+    let db = Arc::new(
+        SafePawDb::open(temp_dir.path().join("safepaw.data")).expect("DB should initialize"),
+    );
+    let agent_manager = Arc::new(LocalAgentManager::new_with_db(fake_api.clone(), db));
+    let app_state = safepaw::server::AppState::new(fake_api as Arc<_>, agent_manager as Arc<_>);
+
+    (temp_dir, create_api_router(app_state))
 }
 
 #[async_trait]
@@ -68,13 +82,24 @@ impl VmApi for FakeVmApi {
     async fn list(&self) -> anyhow::Result<Vec<VmSummary>> {
         Ok(self.state.lock().expect("poisoned fake state").vms.clone())
     }
+
+    async fn exec(
+        &self,
+        _name: &str,
+        _command: &[String],
+    ) -> anyhow::Result<safepaw::vm::CommandOutput> {
+        Ok(safepaw::vm::CommandOutput::success(""))
+    }
+
+    async fn transfer(&self, _name: &str, _source: &str, _destination: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 #[tokio::test]
 async fn health_check_returns_ok() {
-    let fake_api = FakeVmApi::default();
-    let app_state = safepaw::server::AppState::new(Arc::new(fake_api));
-    let app = create_api_router(app_state);
+    let fake_api = Arc::new(FakeVmApi::default());
+    let (_temp_dir, app) = build_app(fake_api);
 
     let response = app
         .oneshot(
@@ -98,9 +123,8 @@ async fn health_check_returns_ok() {
 
 #[tokio::test]
 async fn list_vms_returns_empty_array_when_no_vms() {
-    let fake_api = FakeVmApi::default();
-    let app_state = safepaw::server::AppState::new(Arc::new(fake_api));
-    let app = create_api_router(app_state);
+    let fake_api = Arc::new(FakeVmApi::default());
+    let (_temp_dir, app) = build_app(fake_api);
 
     let response = app
         .oneshot(Request::builder().uri("/vms").body(Body::empty()).unwrap())
@@ -133,8 +157,8 @@ async fn list_vms_returns_vms() {
             release: Some("Ubuntu 22.04".to_owned()),
         },
     ]);
-    let app_state = safepaw::server::AppState::new(Arc::new(fake_api));
-    let app = create_api_router(app_state);
+    let fake_api = Arc::new(fake_api);
+    let (_temp_dir, app) = build_app(fake_api);
 
     let response = app
         .oneshot(Request::builder().uri("/vms").body(Body::empty()).unwrap())
@@ -157,9 +181,8 @@ async fn list_vms_returns_vms() {
 
 #[tokio::test]
 async fn get_vm_info_returns_vm_details() {
-    let fake_api = FakeVmApi::default();
-    let app_state = safepaw::server::AppState::new(Arc::new(fake_api));
-    let app = create_api_router(app_state);
+    let fake_api = Arc::new(FakeVmApi::default());
+    let (_temp_dir, app) = build_app(fake_api);
 
     let response = app
         .oneshot(

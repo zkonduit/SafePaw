@@ -1,50 +1,11 @@
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-};
+mod common;
 
-use async_trait::async_trait;
-use safepaw::vm::{CommandExecutor, CommandOutput, Multipass, MultipassCli};
-
-#[derive(Clone)]
-struct FakeExecutor {
-    calls: Arc<Mutex<Vec<Vec<String>>>>,
-    outputs: Arc<Mutex<VecDeque<CommandOutput>>>,
-}
-
-impl FakeExecutor {
-    fn new(outputs: Vec<CommandOutput>) -> Self {
-        Self {
-            calls: Arc::new(Mutex::new(Vec::new())),
-            outputs: Arc::new(Mutex::new(outputs.into())),
-        }
-    }
-
-    fn calls(&self) -> Vec<Vec<String>> {
-        self.calls.lock().expect("poisoned calls mutex").clone()
-    }
-}
-
-#[async_trait]
-impl CommandExecutor for FakeExecutor {
-    async fn run(&self, program: &str, args: &[String]) -> anyhow::Result<CommandOutput> {
-        let mut call = Vec::with_capacity(args.len() + 1);
-        call.push(program.to_owned());
-        call.extend(args.iter().cloned());
-
-        self.calls.lock().expect("poisoned calls mutex").push(call);
-
-        self.outputs
-            .lock()
-            .expect("poisoned outputs mutex")
-            .pop_front()
-            .ok_or_else(|| anyhow::anyhow!("no fake output available"))
-    }
-}
+use common::{FakeExecutor, multipass_cli_with_outputs};
+use safepaw::vm::{CommandOutput, Multipass};
 
 #[tokio::test]
 async fn launch_info_list_and_stop_flow_maps_to_multipass_commands() {
-    let fake = FakeExecutor::new(vec![
+    let (multipass, fake) = multipass_cli_with_outputs(vec![
         CommandOutput::success(""),
         CommandOutput::success(
             r#"{"errors":[],"info":{"agent-1":{"state":"Running","release":"22.04"}}}"#,
@@ -54,7 +15,6 @@ async fn launch_info_list_and_stop_flow_maps_to_multipass_commands() {
         ),
         CommandOutput::success(""),
     ]);
-    let multipass = MultipassCli::new(fake.clone());
 
     multipass
         .launch("agent-1")
@@ -105,12 +65,11 @@ async fn launch_info_list_and_stop_flow_maps_to_multipass_commands() {
 
 #[tokio::test]
 async fn launch_returns_error_when_multipass_command_fails() {
-    let fake = FakeExecutor::new(vec![CommandOutput {
+    let (multipass, _fake) = multipass_cli_with_outputs(vec![CommandOutput {
         status_code: 1,
         stdout: String::new(),
         stderr: "launch failed".to_owned(),
     }]);
-    let multipass = MultipassCli::new(fake);
 
     let err = multipass
         .launch("agent-1")

@@ -28,6 +28,7 @@ tokio = { version = "1.48", features = ["fs", "macros", "process", "rt-multi-thr
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1.18", features = ["serde", "v4"] }
+redb = "3.1.1"
 
 [dev-dependencies]
 tempfile = "3.20"

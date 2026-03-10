@@ -110,6 +110,23 @@ impl Multipass for FakeMultipass {
         state.calls.push("list".to_owned());
         Ok(state.listed_vms.clone())
     }
+
+    async fn exec(
+        &self,
+        _name: &str,
+        _command: &[String],
+    ) -> Result<safepaw::vm::CommandOutput, VmError> {
+        Ok(safepaw::vm::CommandOutput::success(""))
+    }
+
+    async fn transfer(
+        &self,
+        _name: &str,
+        _source: &str,
+        _destination: &str,
+    ) -> Result<(), VmError> {
+        Ok(())
+    }
 }
 
 #[tokio::test]

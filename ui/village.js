@@ -211,28 +211,45 @@ class SafePawVillage {
         menu.style.left = `${menuX}px`;
         menu.style.top = `${menuY}px`;
 
-        // Add Delete option
-        const deleteOption = document.createElement('div');
-        deleteOption.textContent = '🗑️ Delete VM';
-        deleteOption.style.padding = '10px 16px';
-        deleteOption.style.cursor = 'pointer';
-        deleteOption.style.borderRadius = '8px';
-        deleteOption.style.transition = 'background 0.2s ease';
-        deleteOption.style.color = '#dc2626';
-        deleteOption.style.fontWeight = '500';
+        // Helper function to create menu items
+        const createMenuItem = (text, color, hoverBg, onClick) => {
+            const option = document.createElement('div');
+            option.textContent = text;
+            option.style.padding = '10px 16px';
+            option.style.cursor = 'pointer';
+            option.style.borderRadius = '8px';
+            option.style.transition = 'background 0.2s ease';
+            option.style.color = color;
+            option.style.fontWeight = '500';
 
-        deleteOption.addEventListener('mouseenter', () => {
-            deleteOption.style.background = 'rgba(239, 68, 68, 0.1)';
-        });
-        deleteOption.addEventListener('mouseleave', () => {
-            deleteOption.style.background = 'transparent';
-        });
-        deleteOption.addEventListener('click', () => {
-            this.closeVMMenu();
-            this.handleDeleteVM(vmName);
-        });
+            option.addEventListener('mouseenter', () => {
+                option.style.background = hoverBg;
+            });
+            option.addEventListener('mouseleave', () => {
+                option.style.background = 'transparent';
+            });
+            option.addEventListener('click', () => {
+                this.closeVMMenu();
+                onClick();
+            });
 
-        menu.appendChild(deleteOption);
+            return option;
+        };
+
+        // Add menu items
+        menu.appendChild(createMenuItem(
+            '🤖 Spawn Agent',
+            '#667eea',
+            'rgba(102, 126, 234, 0.1)',
+            () => this.handleSpawnAgent(vmName)
+        ));
+
+        menu.appendChild(createMenuItem(
+            '🗑️ Delete VM',
+            '#dc2626',
+            'rgba(239, 68, 68, 0.1)',
+            () => this.handleDeleteVM(vmName)
+        ));
         document.body.appendChild(menu);
 
         // Close menu when clicking outside
@@ -282,6 +299,172 @@ class SafePawVillage {
         }
     }
 
+    async parseApiResponseBody(response) {
+        const text = await response.text();
+
+        if (!text) {
+            return { text: '', json: null, parseError: null };
+        }
+
+        try {
+            return {
+                text,
+                json: JSON.parse(text),
+                parseError: null,
+            };
+        } catch (parseError) {
+            return {
+                text,
+                json: null,
+                parseError,
+            };
+        }
+    }
+
+    buildApiError(action, response, parsedBody, fallbackMessage = null) {
+        const responseJson = parsedBody.json;
+        const message =
+            responseJson?.error ||
+            responseJson?.message ||
+            fallbackMessage ||
+            parsedBody.text ||
+            `${action} failed with ${response.status} ${response.statusText}`;
+
+        const error = new Error(message);
+        error.name = 'ApiRequestError';
+        error.action = action;
+        error.status = response.status;
+        error.statusText = response.statusText;
+        error.url = response.url;
+        error.details = responseJson?.details || null;
+        error.responseJson = responseJson;
+        error.responseText = parsedBody.text;
+        error.responseBody = responseJson || parsedBody.text || null;
+
+        if (parsedBody.parseError) {
+            error.parseError = parsedBody.parseError.message;
+        }
+
+        return error;
+    }
+
+    async fetchJsonOrThrow(url, options, action) {
+        const response = await fetch(url, options);
+        const parsedBody = await this.parseApiResponseBody(response);
+
+        if (!response.ok) {
+            throw this.buildApiError(action, response, parsedBody);
+        }
+
+        if (!parsedBody.json) {
+            throw this.buildApiError(
+                action,
+                response,
+                parsedBody,
+                `${action} returned a non-JSON response`
+            );
+        }
+
+        return parsedBody.json;
+    }
+
+    logSpawnAgentError(vmName, error) {
+        if (!error || typeof error !== 'object') {
+            console.error('Error spawning agent:', { vmName, message: String(error) });
+            return;
+        }
+
+        console.error(
+            'Error spawning agent:',
+            {
+                vmName,
+                name: error.name || null,
+                message: error.message || null,
+                action: error.action || null,
+                status: error.status || null,
+                statusText: error.statusText || null,
+                url: error.url || null,
+                details: error.details || null,
+                response: error.responseBody || null,
+                parseError: error.parseError || null,
+                stack: error.stack || null,
+            },
+            error
+        );
+    }
+
+    async handleSpawnAgent(vmName) {
+        // Confirm with user
+        const confirmed = confirm(`Spawn an agent in VM "${vmName}"?\n\nThis will:\n1. Install the agent software (if not already installed)\n2. Spawn a new agent instance\n\nThe agent will appear walking around the house.`);
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            console.log(`Spawning agent in VM: ${vmName}`);
+
+            // Step 1: Check if agent is installed
+            console.log('Checking if agent is installed...');
+            const checkResult = await this.fetchJsonOrThrow(
+                `http://localhost:8889/agents/${vmName}/check`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agent_type: 'picoclaw' }),
+                },
+                'Check agent installation'
+            );
+            const isInstalled = checkResult.installed;
+
+            // Step 2: Install if not installed
+            if (!isInstalled) {
+                console.log('Agent not installed, installing...');
+                alert('Agent software not found. Installing... This may take a minute.');
+
+                const installResult = await this.fetchJsonOrThrow(
+                    `http://localhost:8889/agents/${vmName}/install`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ agent_type: 'picoclaw' }),
+                    },
+                    'Install agent'
+                );
+
+                console.log('Agent installed successfully:', installResult);
+            }
+
+            // Step 3: Onboard the agent
+            console.log('Onboarding agent...');
+            const onboardResult = await this.fetchJsonOrThrow(
+                `http://localhost:8889/agents/${vmName}/onboard`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        agent_type: 'picoclaw',
+                        provider: 'openrouter',
+                        api_key_name: 'OPENROUTER_API_KEY',
+                        capabilities: ['filesystem', 'network'],
+                    }),
+                },
+                'Onboard agent'
+            );
+            console.log('Agent onboarded successfully:', onboardResult);
+
+            // Add agent to house visualization
+            const houseData = this.houses.get(vmName);
+            if (houseData) {
+                this.addAgentToHouse(vmName, onboardResult.agent);
+            }
+
+            alert(`Agent spawned successfully in VM "${vmName}"!\n\nAgent ID: ${onboardResult.agent.id}`);
+        } catch (error) {
+            this.logSpawnAgentError(vmName, error);
+            alert(`Failed to spawn agent: ${error.message}`);
+        }
+    }
+
     async loadAssets() {
         // Load textures from the assets folder
         const assetsPath = window.location.protocol + '//' + window.location.hostname + ':8888/assets';
@@ -318,7 +501,11 @@ class SafePawVillage {
             console.log('Water path:', waterPath);
             PIXI.Assets.add({ alias: 'water', src: waterPath });
 
-            await PIXI.Assets.load(['grass', 'wood_house', 'chicken', 'cow', 'plants', 'water']);
+            const agentSpritePath = `${assetsPath}/character/default_spritesheet.png`;
+            console.log('Agent sprite path:', agentSpritePath);
+            PIXI.Assets.add({ alias: 'agent_sprite', src: agentSpritePath });
+
+            await PIXI.Assets.load(['grass', 'wood_house', 'chicken', 'cow', 'plants', 'water', 'agent_sprite']);
         } catch (error) {
             console.error('Error loading assets:', error);
         }
@@ -661,6 +848,9 @@ class SafePawVillage {
         vms.forEach((vm, index) => {
             const position = this.calculateVMPosition(index);
             this.addVMToVillage(vm, position);
+
+            // Load agents for this VM
+            this.loadAgentsForVM(vm.name);
         });
 
         this.updateInfoPanel();
@@ -685,6 +875,9 @@ class SafePawVillage {
         vms.forEach((vm, i) => {
             const position = this.calculateVMPosition(startIndex + i);
             this.addVMToVillage(vm, position);
+
+            // Load agents for this VM
+            this.loadAgentsForVM(vm.name);
         });
 
         this.updateInfoPanel();
@@ -726,6 +919,9 @@ class SafePawVillage {
 
         vms.forEach(vm => {
             this.updateVMInVillage(vm);
+
+            // Reload agents for this VM (in case they changed)
+            this.loadAgentsForVM(vm.name);
         });
 
         this.updateInfoPanel();
@@ -783,6 +979,11 @@ class SafePawVillage {
                 this.animalLayer.removeChild(animal);
             });
         }
+        if (houseData.agentSprites) {
+            houseData.agentSprites.forEach(agent => {
+                this.animalLayer.removeChild(agent);
+            });
+        }
 
         this.houses.delete(vmName);
     }
@@ -814,17 +1015,20 @@ class SafePawVillage {
             houseData.house.tint = tintColor;
         }
 
-        // Clean up old animal callbacks (keep house breathing callback)
+        // Clean up old animal callbacks while keeping house and agent animations alive.
         const callbacks = this.tickerCallbacks.get(vm.name) || [];
-        const houseCallback = callbacks[0]; // First callback is always the house breathing
+        const persistentCallbacks = [];
 
-        // Remove all animal callbacks (everything except first)
-        for (let i = 1; i < callbacks.length; i++) {
-            this.app.ticker.remove(callbacks[i]);
-        }
+        callbacks.forEach(callback => {
+            if (callback?.safePawType === 'animal') {
+                this.app.ticker.remove(callback);
+                return;
+            }
 
-        // Reset to just house callback
-        this.tickerCallbacks.set(vm.name, [houseCallback]);
+            persistentCallbacks.push(callback);
+        });
+
+        this.tickerCallbacks.set(vm.name, persistentCallbacks);
 
         // Update animals (remove old ones, add new ones)
         if (houseData.animals) {
@@ -875,6 +1079,18 @@ class SafePawVillage {
             if (houseData.nameText) {
                 houseData.nameText.x = newPosition.x;
                 houseData.nameText.y = newPosition.y + 40;
+            }
+            if (houseData.agentSprites) {
+                houseData.agentSprites.forEach(agent => {
+                    this.updateAgentHome(
+                        agent,
+                        newPosition.x,
+                        newPosition.y,
+                        houseData.houseSize,
+                        houseData.tileSize,
+                        houseData.houseScale
+                    );
+                });
             }
 
             // Reposition animals
@@ -1098,6 +1314,7 @@ class SafePawVillage {
             const breath = Math.sin(houseContainer.userData.time) * breathingAmount;
             houseContainer.scale.set(houseContainer.userData.baseScale * (1 + breath));
         };
+        breathingCallback.safePawType = 'house';
         this.app.ticker.add(breathingCallback);
         callbacks.push(breathingCallback);
 
@@ -1292,6 +1509,7 @@ class SafePawVillage {
             nameText,
             gearButton,
             animals,
+            agentSprites: [],
             vm,
             // Store house parameters for later use (when updating/reorganizing)
             houseSize,
@@ -1420,6 +1638,7 @@ class SafePawVillage {
                 chicken.userData.animTime = 0;
             }
         };
+        callback.safePawType = 'animal';
 
         this.app.ticker.add(callback);
         this.animalLayer.addChild(chicken);
@@ -1499,6 +1718,7 @@ class SafePawVillage {
                 cow.userData.animTime = 0;
             }
         };
+        callback.safePawType = 'animal';
 
         this.app.ticker.add(callback);
         this.animalLayer.addChild(cow);
@@ -1533,5 +1753,434 @@ class SafePawVillage {
     update() {
         // Smooth update loop
         // Additional animations and effects can be added here
+    }
+
+    // ============================================================================
+    // Agent Management
+    // ============================================================================
+
+    loadAgentsForVM(vmName) {
+        const houseData = this.houses.get(vmName);
+        if (!houseData) {
+            console.warn(`House not found for VM: ${vmName}`);
+            return;
+        }
+
+        // Get agents from state manager
+        const agents = this.stateManager.getAgents(vmName);
+
+        console.log(`[AGENT] Loading ${agents.length} agents for VM: ${vmName}`, agents);
+
+        // Initialize agent sprites array if not exists
+        if (!houseData.agentSprites) {
+            houseData.agentSprites = [];
+        }
+
+        // Track which agent IDs we've already rendered
+        const existingAgentIds = new Set(
+            houseData.agentSprites.map(sprite => sprite.userData?.agentData?.id).filter(Boolean)
+        );
+
+        // Add new agents that don't exist yet
+        agents.forEach(agentData => {
+            if (!existingAgentIds.has(agentData.id)) {
+                console.log(`[AGENT] Creating animation for new agent: ${agentData.id}`);
+                this.addAgentToHouse(vmName, agentData);
+            }
+        });
+
+        // Remove agents that no longer exist
+        const currentAgentIds = new Set(agents.map(a => a.id));
+        houseData.agentSprites = houseData.agentSprites.filter(sprite => {
+            const agentId = sprite.userData?.agentData?.id;
+            if (agentId && !currentAgentIds.has(agentId)) {
+                console.log(`[AGENT] Removing agent sprite: ${agentId}`);
+                this.animalLayer.removeChild(sprite);
+                // Remove ticker callback
+                const callbacks = this.tickerCallbacks.get(vmName) || [];
+                const index = callbacks.indexOf(sprite.userData?.callback);
+                if (index > -1) {
+                    this.app.ticker.remove(callbacks[index]);
+                    callbacks.splice(index, 1);
+                }
+                return false;
+            }
+            return true;
+        });
+    }
+
+    addAgentToHouse(vmName, agentData) {
+        const houseData = this.houses.get(vmName);
+        if (!houseData) {
+            console.warn(`House not found for VM: ${vmName}`);
+            return;
+        }
+
+        // Initialize agents array if not exists
+        if (!houseData.agentSprites) {
+            houseData.agentSprites = [];
+        }
+
+        console.log(`[AGENT] Adding agent to house ${vmName}:`, agentData);
+
+        // Create the animated agent sprite
+        const agent = this.createAgentAnimation(
+            houseData.house.x,
+            houseData.house.y,
+            houseData.houseSize,
+            houseData.tileSize,
+            houseData.houseScale,
+            {
+                ...agentData,
+                vm_name: agentData.vm_name || vmName,
+            }
+        );
+
+        houseData.agentSprites.push(agent);
+    }
+
+    buildAgentHomeBounds(houseX, houseY, houseSize, tileSize, houseScale) {
+        const houseWidth = houseSize * tileSize * houseScale;
+        const houseHeight = houseSize * tileSize * houseScale;
+        const wallThickness = tileSize * houseScale;
+        const insetX = Math.max(wallThickness * 1.05, 46);
+        const insetTop = Math.max(wallThickness * 1.1, 46);
+        const insetBottom = Math.max(wallThickness * 1.45, 62);
+
+        return {
+            minX: houseX - houseWidth / 2 + insetX,
+            maxX: houseX + houseWidth / 2 - insetX,
+            minY: houseY - houseHeight / 2 + insetTop,
+            maxY: houseY + houseHeight / 2 - insetBottom,
+            centerX: houseX,
+            centerY: houseY,
+        };
+    }
+
+    clampToRange(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+    clampAgentPointToBounds(point, bounds) {
+        return {
+            x: this.clampToRange(point.x, bounds.minX, bounds.maxX),
+            y: this.clampToRange(point.y, bounds.minY, bounds.maxY),
+        };
+    }
+
+    getRandomAgentPoint(bounds, currentPoint = null, minDistance = 0) {
+        let candidate = {
+            x: bounds.centerX,
+            y: bounds.centerY,
+        };
+
+        for (let attempt = 0; attempt < 8; attempt++) {
+            candidate = {
+                x: bounds.minX + Math.random() * (bounds.maxX - bounds.minX),
+                y: bounds.minY + Math.random() * (bounds.maxY - bounds.minY),
+            };
+
+            if (!currentPoint) {
+                return candidate;
+            }
+
+            const dx = candidate.x - currentPoint.x;
+            const dy = candidate.y - currentPoint.y;
+            if (Math.sqrt(dx * dx + dy * dy) >= minDistance) {
+                return candidate;
+            }
+        }
+
+        return candidate;
+    }
+
+    getDirectionFromVector(dx, dy, fallback = 'down') {
+        const absX = Math.abs(dx);
+        const absY = Math.abs(dy);
+
+        if (absX < 0.01 && absY < 0.01) {
+            return fallback;
+        }
+
+        if (absX > absY) {
+            return dx >= 0 ? 'right' : 'left';
+        }
+
+        return dy >= 0 ? 'down' : 'up';
+    }
+
+    updateAgentHome(agent, houseX, houseY, houseSize, tileSize, houseScale, recenter = false) {
+        const bounds = this.buildAgentHomeBounds(houseX, houseY, houseSize, tileSize, houseScale);
+        const previousBounds = agent.userData?.homeBounds;
+
+        if (!previousBounds || recenter) {
+            const startPoint = this.clampAgentPointToBounds(
+                {
+                    x: bounds.centerX + (Math.random() - 0.5) * Math.min((bounds.maxX - bounds.minX) * 0.35, 54),
+                    y: bounds.minY + (bounds.maxY - bounds.minY) * (0.58 + Math.random() * 0.2),
+                },
+                bounds
+            );
+
+            agent.userData.homeBounds = bounds;
+            agent.userData.moveX = startPoint.x;
+            agent.userData.moveY = startPoint.y;
+            agent.userData.targetX = startPoint.x;
+            agent.userData.targetY = startPoint.y;
+            agent.x = startPoint.x;
+            agent.y = startPoint.y;
+            return;
+        }
+
+        const deltaX = bounds.centerX - previousBounds.centerX;
+        const deltaY = bounds.centerY - previousBounds.centerY;
+        const movedPoint = this.clampAgentPointToBounds(
+            {
+                x: agent.userData.moveX + deltaX,
+                y: agent.userData.moveY + deltaY,
+            },
+            bounds
+        );
+        const movedTarget = this.clampAgentPointToBounds(
+            {
+                x: agent.userData.targetX + deltaX,
+                y: agent.userData.targetY + deltaY,
+            },
+            bounds
+        );
+
+        agent.userData.homeBounds = bounds;
+        agent.userData.moveX = movedPoint.x;
+        agent.userData.moveY = movedPoint.y;
+        agent.userData.targetX = movedTarget.x;
+        agent.userData.targetY = movedTarget.y;
+        agent.x = movedPoint.x;
+        agent.y = movedPoint.y;
+    }
+
+    createAgentAnimation(houseX, houseY, houseSize, tileSize, houseScale, agentData) {
+        const agentTexture = PIXI.Assets.get('agent_sprite');
+        const agentTextureWidth = agentTexture.source.width || agentTexture.width;
+        const agentTextureHeight = agentTexture.source.height || agentTexture.height;
+        const AGENT_SPRITESHEET_COLUMNS = 4;
+        const AGENT_SPRITESHEET_ROWS = 4;
+        const AGENT_FRAME_SIZE = 16;
+        const agentCellWidth = Math.floor(agentTextureWidth / AGENT_SPRITESHEET_COLUMNS);
+        const agentCellHeight = Math.floor(agentTextureHeight / AGENT_SPRITESHEET_ROWS);
+        const agentFrameOffsetX = Math.floor((agentCellWidth - AGENT_FRAME_SIZE) / 2);
+        const agentFrameOffsetY = Math.floor((agentCellHeight - AGENT_FRAME_SIZE) / 2);
+        const createFrameRect = (col, row) => new PIXI.Rectangle(
+            col * agentCellWidth + agentFrameOffsetX,
+            row * agentCellHeight + agentFrameOffsetY,
+            AGENT_FRAME_SIZE,
+            AGENT_FRAME_SIZE
+        );
+
+        // Spritesheet layout (1-indexed, subtract 1 for 0-indexed arrays):
+        // Row 1: Front-facing - cols 1-2 idle, cols 3-4 walking down
+        // Row 2: Back-facing  - cols 1-2 idle, cols 3-4 walking up
+        // Row 3: Left-facing  - cols 1-2 idle, cols 3-4 walking left
+        // Row 4: Right-facing - cols 1-2 idle, cols 3-4 walking right
+
+        // Create initial sprite using the centered 16x16 art inside each 48x48 sheet cell.
+        const initialFrame = createFrameRect(0, this.getDirectionRow('down'));
+        const agent = new PIXI.Sprite(new PIXI.Texture({
+            source: agentTexture.source,
+            frame: initialFrame,
+        }));
+
+        agent.scale.set(3.0); // Scale up for visibility
+        agent.anchor.set(0.5, 0.78);
+
+        // Animation state
+        agent.userData = {
+            targetX: houseX,
+            targetY: houseY,
+            moveX: houseX,
+            moveY: houseY,
+            speed: 1.0,
+            baseSpeed: 0.75 + Math.random() * 0.55,
+            walkFrame: 0,
+            idleFrame: 0,
+            animTime: 0,
+            walkAnimSpeed: 8,
+            idleAnimSpeed: 24,
+            direction: 'down',
+            agentData,
+            state: 'idle',
+            stateTimer: 0,
+            lookAroundTimer: 0,
+            stepPhase: Math.random() * Math.PI * 2,
+            stepRate: 0.22,
+            stepBobAmount: 0.5,
+            idlePhase: Math.random() * Math.PI * 2,
+            idleBobAmount: 0.35,
+            idleSwayAmount: 0.2,
+            homeBounds: null,
+        };
+
+        this.updateAgentHome(agent, houseX, houseY, houseSize, tileSize, houseScale, true);
+
+        const applyIdleFrame = () => {
+            const row = this.getDirectionRow(agent.userData.direction);
+            const idleFrame = createFrameRect(agent.userData.idleFrame, row);
+            agent.texture = new PIXI.Texture({
+                source: agentTexture.source,
+                frame: idleFrame,
+            });
+        };
+
+        const applyWalkFrame = () => {
+            const row = this.getDirectionRow(agent.userData.direction);
+            const walkFrame = createFrameRect(2 + agent.userData.walkFrame, row);
+            agent.texture = new PIXI.Texture({
+                source: agentTexture.source,
+                frame: walkFrame,
+            });
+        };
+
+        const startIdle = (duration = null) => {
+            agent.userData.state = 'idle';
+            agent.userData.stateTimer = duration ?? 25 + Math.floor(Math.random() * 95);
+            agent.userData.lookAroundTimer = 12 + Math.floor(Math.random() * 36);
+            agent.userData.idleAnimSpeed = 18 + Math.floor(Math.random() * 20);
+            agent.userData.idleBobAmount = 0.18 + Math.random() * 0.35;
+            agent.userData.idleSwayAmount = 0.08 + Math.random() * 0.22;
+            agent.userData.animTime = 0;
+            applyIdleFrame();
+        };
+
+        const pickNextTarget = (minDistance = 30 + Math.random() * 45) => {
+            const currentPoint = {
+                x: agent.userData.moveX,
+                y: agent.userData.moveY,
+            };
+            const target = this.getRandomAgentPoint(
+                agent.userData.homeBounds,
+                currentPoint,
+                minDistance
+            );
+
+            agent.userData.targetX = target.x;
+            agent.userData.targetY = target.y;
+            agent.userData.speed = agent.userData.baseSpeed * (0.9 + Math.random() * 0.5);
+            agent.userData.walkAnimSpeed = 5 + Math.floor(Math.random() * 5);
+            agent.userData.stepRate = 0.16 + Math.random() * 0.08 + agent.userData.speed * 0.06;
+            agent.userData.stepBobAmount = 0.18 + Math.random() * 0.45;
+            agent.userData.state = 'walking';
+            agent.userData.animTime = 0;
+            agent.userData.direction = this.getDirectionFromVector(
+                target.x - currentPoint.x,
+                target.y - currentPoint.y,
+                agent.userData.direction
+            );
+            applyWalkFrame();
+        };
+
+        startIdle(20 + Math.floor(Math.random() * 45));
+
+        // Create animation callback
+        const animCallback = () => {
+            if (agent.userData.state === 'idle') {
+                agent.userData.stateTimer--;
+                agent.userData.lookAroundTimer--;
+                agent.userData.idlePhase += 0.05;
+
+                const idleBob = Math.sin(agent.userData.idlePhase) * agent.userData.idleBobAmount;
+                const idleSway = Math.sin(agent.userData.idlePhase * 0.5) * agent.userData.idleSwayAmount;
+                agent.x = agent.userData.moveX + idleSway;
+                agent.y = agent.userData.moveY + idleBob;
+
+                agent.userData.animTime++;
+                if (agent.userData.animTime >= agent.userData.idleAnimSpeed) {
+                    agent.userData.animTime = 0;
+                    agent.userData.idleFrame = (agent.userData.idleFrame + 1) % 2;
+                    applyIdleFrame();
+                }
+
+                if (agent.userData.lookAroundTimer <= 0) {
+                    const directions = ['down', 'left', 'right', 'up'];
+                    agent.userData.direction = directions[Math.floor(Math.random() * directions.length)];
+                    agent.userData.lookAroundTimer = 18 + Math.floor(Math.random() * 42);
+                    applyIdleFrame();
+                }
+
+                if (agent.userData.stateTimer <= 0) {
+                    if (Math.random() < 0.2) {
+                        startIdle(12 + Math.floor(Math.random() * 40));
+                    } else {
+                        pickNextTarget();
+                    }
+                }
+
+                return;
+            }
+
+            const dx = agent.userData.targetX - agent.userData.moveX;
+            const dy = agent.userData.targetY - agent.userData.moveY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance <= agent.userData.speed) {
+                agent.userData.moveX = agent.userData.targetX;
+                agent.userData.moveY = agent.userData.targetY;
+                agent.x = agent.userData.moveX;
+                agent.y = agent.userData.moveY;
+
+                if (Math.random() < 0.6) {
+                    startIdle();
+                } else {
+                    pickNextTarget(22 + Math.random() * 55);
+                }
+
+                return;
+            }
+
+            const stepX = (dx / distance) * agent.userData.speed;
+            const stepY = (dy / distance) * agent.userData.speed;
+
+            agent.userData.moveX += stepX;
+            agent.userData.moveY += stepY;
+            agent.userData.direction = this.getDirectionFromVector(
+                stepX,
+                stepY,
+                agent.userData.direction
+            );
+
+            agent.userData.stepPhase += agent.userData.stepRate;
+            agent.x = agent.userData.moveX;
+            agent.y = agent.userData.moveY + Math.sin(agent.userData.stepPhase) * agent.userData.stepBobAmount;
+
+            agent.userData.animTime++;
+            if (agent.userData.animTime >= agent.userData.walkAnimSpeed) {
+                agent.userData.animTime = 0;
+                agent.userData.walkFrame = (agent.userData.walkFrame + 1) % 2;
+                applyWalkFrame();
+            }
+        };
+        animCallback.safePawType = 'agent';
+
+        this.app.ticker.add(animCallback);
+        this.animalLayer.addChild(agent);
+
+        // Store callback reference in sprite for cleanup
+        agent.userData.callback = animCallback;
+
+        // Store callback for cleanup
+        const callbacks = this.tickerCallbacks.get(agentData.vm_name) || [];
+        callbacks.push(animCallback);
+        this.tickerCallbacks.set(agentData.vm_name, callbacks);
+
+        return agent;
+    }
+
+    getDirectionRow(direction) {
+        // Map direction to row (0-indexed)
+        switch (direction) {
+            case 'down': return 0;  // Row 1 (front-facing)
+            case 'up': return 1;    // Row 2 (back-facing)
+            case 'left': return 2;  // Row 3 (left-facing)
+            case 'right': return 3; // Row 4 (right-facing)
+            default: return 0;
+        }
     }
 }
