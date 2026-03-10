@@ -556,10 +556,7 @@ fn format_agent_summary(agent: &AgentInstance) -> String {
 fn format_agent_instance(agent: &AgentInstance) -> Vec<String> {
     let mut lines = vec![
         format!("ID:       {}", agent.id),
-        format!(
-            "Name:     {}",
-            agent.name.as_deref().unwrap_or("<unnamed>")
-        ),
+        format!("Name:     {}", agent.name.as_deref().unwrap_or("<unnamed>")),
         format!("VM:       {}", agent.vm_name),
         format!("Type:     {:?}", agent.config.agent_type),
         format!("Status:   {:?}", agent.status),
