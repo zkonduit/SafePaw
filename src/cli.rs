@@ -546,7 +546,7 @@ fn parse_agent_type(s: &str) -> Result<AgentType> {
 }
 
 fn format_agent_summary(agent: &AgentInstance) -> String {
-    let name = agent.name.as_ref().map(String::as_str).unwrap_or(&agent.id);
+    let name = agent.name.as_deref().unwrap_or(&agent.id);
     format!(
         "{} | {:?} | {:?} | {}",
         name, agent.status, agent.config.agent_type, agent.config.provider_config.provider
@@ -558,11 +558,7 @@ fn format_agent_instance(agent: &AgentInstance) -> Vec<String> {
         format!("ID:       {}", agent.id),
         format!(
             "Name:     {}",
-            agent
-                .name
-                .as_ref()
-                .map(String::as_str)
-                .unwrap_or("<unnamed>")
+            agent.name.as_deref().unwrap_or("<unnamed>")
         ),
         format!("VM:       {}", agent.vm_name),
         format!("Type:     {:?}", agent.config.agent_type),
