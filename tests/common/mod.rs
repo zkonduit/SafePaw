@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // Shared test utilities for SafePaw tests
 
 use std::{

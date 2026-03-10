@@ -1,6 +1,6 @@
 mod common;
 
-use common::{FakeExecutor, multipass_cli_with_outputs};
+use common::multipass_cli_with_outputs;
 use safepaw::vm::{CommandOutput, Multipass};
 
 #[tokio::test]

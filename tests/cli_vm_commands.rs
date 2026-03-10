@@ -3,7 +3,6 @@ mod common;
 use common::FakeVmApi;
 use safepaw::cli::{build_cli, run_vm_subcommand};
 use safepaw::vm::VmSummary;
-use std::sync::Arc;
 
 #[tokio::test]
 async fn vm_launch_command_produces_expected_output_and_call() {

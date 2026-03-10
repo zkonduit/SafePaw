@@ -197,7 +197,7 @@ async fn test_onboard_agent_not_installed() {
     assert_eq!(body["details"]["code"], "agent_onboard_failed");
     assert_eq!(body["details"]["operation"], "onboard_agent");
     assert_eq!(body["details"]["vm_name"], "test-vm");
-    assert!(body["details"]["causes"].as_array().unwrap().len() >= 1);
+    assert!(!body["details"]["causes"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -248,7 +248,7 @@ async fn test_list_and_get_agents_after_onboard() {
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(&format!("/agents/test-vm/{agent_id}"))
+        .uri(format!("/agents/test-vm/{agent_id}"))
         .body(Body::empty())
         .unwrap();
     let get_response = router.oneshot(get_request).await.unwrap();
@@ -306,7 +306,7 @@ async fn test_full_agent_lifecycle() {
 
     let get_request = Request::builder()
         .method("GET")
-        .uri(&format!("/agents/test-vm/{agent_id}"))
+        .uri(format!("/agents/test-vm/{agent_id}"))
         .body(Body::empty())
         .unwrap();
     let get_response = router.clone().oneshot(get_request).await.unwrap();
@@ -314,7 +314,7 @@ async fn test_full_agent_lifecycle() {
 
     let stop_request = Request::builder()
         .method("POST")
-        .uri(&format!("/agents/test-vm/{agent_id}/stop"))
+        .uri(format!("/agents/test-vm/{agent_id}/stop"))
         .body(Body::empty())
         .unwrap();
     let stop_response = router.clone().oneshot(stop_request).await.unwrap();
@@ -322,7 +322,7 @@ async fn test_full_agent_lifecycle() {
 
     let delete_request = Request::builder()
         .method("DELETE")
-        .uri(&format!("/agents/test-vm/{agent_id}"))
+        .uri(format!("/agents/test-vm/{agent_id}"))
         .body(Body::empty())
         .unwrap();
     let delete_response = router.clone().oneshot(delete_request).await.unwrap();
