@@ -30,7 +30,9 @@ class VMStateManager extends EventTarget {
 
     async fetchVMs() {
         const DEBUG = window.SafePawConfig?.DEBUG_STATE ?? true;
-        const API_BASE = window.SafePawConfig?.API_BASE ?? 'http://localhost:8889';
+        const API_BASE =
+            window.SafePawConfig?.API_BASE ??
+            `${window.location.protocol}//${window.location.hostname}:8889`;
         const fetchStartTime = Date.now();
 
         if (DEBUG) {
