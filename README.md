@@ -19,10 +19,23 @@ curl -fsSL https://raw.githubusercontent.com/zkonduit/SafePaw/main/install.sh | 
 
 The installer defaults to the latest release on `https://github.com/zkonduit/SafePaw/releases`, installs `multipass` when it can, and then places `safepaw` in `/usr/local/bin` or `~/.local/bin`.
 
+If the target install directory is not already on `PATH`, the installer now tries to add it to your shell profile automatically when that directory lives under your home directory. If it cannot do that safely, it prints the exact commands you need to run.
+
+If `safepaw` already exists at the destination path, the installer stops and asks before replacing it. For non-interactive installs, pass `--overwrite`:
+```bash
+curl -fsSL https://raw.githubusercontent.com/zkonduit/SafePaw/main/install.sh | bash -s -- --overwrite
+```
+
 Pin a release or change the install location with environment variables:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zkonduit/SafePaw/main/install.sh | \
   SAFEPAW_VERSION=v0.1.0 SAFEPAW_INSTALL_DIR="$HOME/.local/bin" bash
+```
+
+The installer also accepts CLI flags:
+```bash
+curl -fsSL https://raw.githubusercontent.com/zkonduit/SafePaw/main/install.sh | \
+  bash -s -- --version v0.1.0 --install-dir "$HOME/.local/bin"
 ```
 
 If automatic `multipass` installation is not supported on the host, the script exits with the official Multipass install guide.
