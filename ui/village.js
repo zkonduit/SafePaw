@@ -3,6 +3,9 @@ class SafePawVillage {
         this.app = null;
         this.stateManager = stateManager;
         this.audioManager = new AudioManager();
+        this.apiBase =
+            window.SafePawConfig?.API_BASE ??
+            `${window.location.protocol}//${window.location.hostname}:8889`;
         this.houses = new Map(); // Map of VM name -> house data
         this.tickerCallbacks = new Map(); // Track ticker callbacks for cleanup
         this.isInitialized = false;
@@ -152,7 +155,7 @@ class SafePawVillage {
         try {
             console.log(`Launching VM: ${vmName}`);
 
-            const response = await fetch('http://localhost:8889/vms', {
+            const response = await fetch(`${this.apiBase}/vms`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -281,7 +284,7 @@ class SafePawVillage {
         try {
             console.log(`Deleting VM: ${vmName}`);
 
-            const response = await fetch(`http://localhost:8889/vms/${vmName}`, {
+            const response = await fetch(`${this.apiBase}/vms/${vmName}`, {
                 method: 'DELETE',
             });
 
@@ -406,7 +409,7 @@ class SafePawVillage {
             // Step 1: Check if agent is installed
             console.log('Checking if agent is installed...');
             const checkResult = await this.fetchJsonOrThrow(
-                `http://localhost:8889/agents/${vmName}/check`,
+                `${this.apiBase}/agents/${vmName}/check`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -422,7 +425,7 @@ class SafePawVillage {
                 alert('Agent software not found. Installing... This may take a minute.');
 
                 const installResult = await this.fetchJsonOrThrow(
-                    `http://localhost:8889/agents/${vmName}/install`,
+                    `${this.apiBase}/agents/${vmName}/install`,
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -437,7 +440,7 @@ class SafePawVillage {
             // Step 3: Onboard the agent
             console.log('Onboarding agent...');
             const onboardResult = await this.fetchJsonOrThrow(
-                `http://localhost:8889/agents/${vmName}/onboard`,
+                `${this.apiBase}/agents/${vmName}/onboard`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
